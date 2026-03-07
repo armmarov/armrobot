@@ -37,7 +37,6 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.commands = torch.zeros(self.num_envs, 3, device=self.device)
 
         # gait phase tracking
-        self.gait_phase = torch.zeros(self.num_envs, device=self.device)
         self.sin_phase = torch.zeros(self.num_envs, device=self.device)
         self.cos_phase = torch.zeros(self.num_envs, device=self.device)
         self.ref_joint_pos = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
@@ -53,6 +52,9 @@ class ArmrobotleggingEnv(DirectRLEnv):
             self.cfg.cmd_resample_time_s / (self.cfg.sim.dt * self.cfg.decimation)
         )
         self._cmd_counter = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+
+        # cached tensors
+        self._gravity_w = torch.tensor([0.0, 0.0, -1.0], device=self.device).unsqueeze(0)
 
         # policy dt for convenience
         self._dt = self.cfg.sim.dt * self.cfg.decimation
@@ -107,8 +109,7 @@ class ArmrobotleggingEnv(DirectRLEnv):
         default_pos = self.robot.data.default_joint_pos[:, self._leg_joint_ids]
 
         # projected gravity in body frame — (0,0,-1) when upright
-        gravity_w = torch.tensor([0.0, 0.0, -1.0], device=self.device).expand(self.num_envs, 3)
-        projected_gravity = quat_rotate_inverse(base_quat, gravity_w)
+        projected_gravity = quat_rotate_inverse(base_quat, self._gravity_w.expand(self.num_envs, 3))
 
         # joint positions relative to default standing pose
         joint_pos_rel = joint_pos - default_pos

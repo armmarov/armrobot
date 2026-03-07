@@ -95,8 +95,7 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     base_height_target: float = 0.8132  # nominal standing height [m]
 
     # ---------- contact thresholds ----------
-    foot_contact_threshold: float = 5.0   # [N] — forces above this = foot in contact
-    contact_height_threshold: float = 0.03  # [m] — foot below this = contact
+    contact_height_threshold: float = 0.03  # [m] — foot z-height below this = contact
 
     # ---------- reward scales ----------
     # velocity tracking
