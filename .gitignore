@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+*.so
+
+# Virtual environments
+venv/
+.venv/
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Isaac Lab
+logs/
+outputs/
+videos/
+
+# Trained models
+*.pt
+*.pth
+*.onnx
