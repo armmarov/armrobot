@@ -154,7 +154,7 @@ This prevents negative reward spirals during early training.
 | Reward | Weight | Formula |
 |--------|--------|---------|
 | Gait reference tracking | +2.0 | exp(-2 × \|ref_pos - joint_pos\|²) |
-| Feet air time | +1.5 | Σ (air_time - 0.5) × contact (per foot) |
+| Feet air time | +1.5 | Σ (air_time_at_landing - 0.5) × first_contact (per foot) |
 | Contact pattern | +1.2 | Match expected stance/swing per gait phase |
 | Orientation (upright) | +1.0 | exp(-\|roll,pitch gravity error\|² × 10) |
 | Base height | +0.2 | exp(-\|height - 0.8132\| × 100) |

@@ -45,6 +45,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
         # foot contact tracking
         self.foot_air_time = torch.zeros(self.num_envs, 2, device=self.device)
         self.last_foot_contact = torch.zeros(self.num_envs, 2, dtype=torch.bool, device=self.device)
+        self.first_contact = torch.zeros(self.num_envs, 2, dtype=torch.bool, device=self.device)
+        self.air_time_on_contact = torch.zeros(self.num_envs, 2, device=self.device)
 
         # command resample counter (in policy steps)
         self._cmd_resample_steps = int(
@@ -154,8 +156,9 @@ class ArmrobotleggingEnv(DirectRLEnv):
             commands=self.commands,
             ref_joint_pos=self.ref_joint_pos,
             sin_phase=self.sin_phase,
-            foot_contact=self._compute_foot_contact(),
-            foot_air_time=self.foot_air_time,
+            foot_contact=self.last_foot_contact,
+            first_contact=self.first_contact,
+            air_time_on_contact=self.air_time_on_contact,
             reset_terminated=self.reset_terminated,
             device=self.device,
             num_envs=self.num_envs,
@@ -209,6 +212,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.prev_actions[env_ids] = 0.0
         self.foot_air_time[env_ids] = 0.0
         self.last_foot_contact[env_ids] = False
+        self.first_contact[env_ids] = False
+        self.air_time_on_contact[env_ids] = 0.0
         self._cmd_counter[env_ids] = 0
 
         # sample new velocity commands
@@ -272,11 +277,13 @@ class ArmrobotleggingEnv(DirectRLEnv):
     def _update_foot_contact(self):
         """Track foot air time for gait rewards."""
         contact = self._compute_foot_contact()
-        # detect first-contact events
-        first_contact = contact & ~self.last_foot_contact
-        # increment air time for feet not in contact, reset on contact
+        # detect first-contact events (foot just landed)
+        self.first_contact = contact & ~self.last_foot_contact
+        # save air time at the moment of landing (before reset)
+        self.air_time_on_contact = self.foot_air_time * self.first_contact.float()
+        # increment air time for feet in the air, reset on contact
         self.foot_air_time += self._dt
-        self.foot_air_time *= ~contact  # reset on contact
+        self.foot_air_time *= ~contact  # reset to 0 on contact
         self.last_foot_contact = contact
 
     # ================================================================
@@ -327,7 +334,8 @@ def compute_rewards(
     ref_joint_pos: torch.Tensor,
     sin_phase: torch.Tensor,
     foot_contact: torch.Tensor,
-    foot_air_time: torch.Tensor,
+    first_contact: torch.Tensor,
+    air_time_on_contact: torch.Tensor,
     reset_terminated: torch.Tensor,
     device: torch.device,
     num_envs: int,
@@ -345,15 +353,16 @@ def compute_rewards(
     rew_ref_pos = cfg.rew_ref_joint_pos * torch.exp(-2.0 * ref_diff_sq)
 
     # --- 3. feet air time ---
-    # reward first-contact events proportional to air time
-    contact_f = foot_contact.float()
+    # reward when foot lands (first contact) proportional to how long it was in the air
+    # air_time_on_contact was captured BEFORE reset, so it has the actual swing duration
     rew_air_time = cfg.rew_feet_air_time * torch.sum(
-        (foot_air_time - 0.5) * contact_f, dim=-1
+        (air_time_on_contact - 0.5) * first_contact.float(), dim=-1
     )
 
     # --- 4. feet contact pattern ---
     # left foot should be in stance when sin_phase >= 0, swing when < 0
     # right foot should be in stance when sin_phase < 0, swing when >= 0
+    contact_f = foot_contact.float()
     desired_contact_left = (sin_phase >= 0).float()
     desired_contact_right = (sin_phase < 0).float()
     desired_contact = torch.stack([desired_contact_left, desired_contact_right], dim=-1)
