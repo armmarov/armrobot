@@ -140,7 +140,7 @@ flowchart TB
         subgraph POS["Positive rewards (clamped ≥ 0)"]
             R1["tracking_lin_vel = 1.4 × exp(-error²/5.0)<br/>Match commanded vx, vy"]
             R2["tracking_ang_vel = 1.1 × exp(-error²/5.0)<br/>Match commanded yaw rate"]
-            R3["ref_joint_pos = 2.2 × exp(-2 × mean(diff²))<br/>Follow gait reference (MEAN over joints)"]
+            R3["ref_joint_pos = 2.2 × mean(exp(-2 × diff²))<br/>Per-joint exp then average (matching EngineAI)"]
             R4["feet_air_time = 1.5 × Σ(air_time - 0.5) × first_contact<br/>Reward proper swing duration<br/>(gated: zero when cmd < 0.1)"]
             R5["feet_contact_number = 1.4 × mean(match)<br/>Correct stance/swing per phase"]
             R6["orientation = 1.0 × exp(-roll_pitch_err × 10)<br/>Stay upright"]

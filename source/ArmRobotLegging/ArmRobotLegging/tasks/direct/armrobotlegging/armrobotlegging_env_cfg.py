@@ -90,9 +90,9 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
 
     # ---------- domain randomization: push forces ----------
     push_robots: bool = True            # enable random pushes (velocity impulses)
-    push_interval_s: float = 8.0        # push every N seconds (matching EngineAI)
-    max_push_vel_xy: float = 0.4        # max linear velocity impulse [m/s]
-    max_push_ang_vel: float = 0.6       # max angular velocity impulse [rad/s]
+    push_interval_s: float = 4.0        # push every N seconds (more frequent than EngineAI)
+    max_push_vel_xy: float = 1.0        # max linear velocity impulse [m/s] (EngineAI base=1.0)
+    max_push_ang_vel: float = 0.8       # max angular velocity impulse [rad/s]
 
     # ---------- termination ----------
     termination_height: float = 0.45    # reset if base z < this [m]
@@ -105,7 +105,7 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     # velocity tracking
     rew_tracking_lin_vel: float = 1.4
     rew_tracking_ang_vel: float = 1.1
-    rew_tracking_sigma: float = 5.0
+    rew_tracking_sigma: float = 2.5
 
     # gait quality
     rew_ref_joint_pos: float = 2.2       # follow gait reference
@@ -130,7 +130,7 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     rew_alive: float = 0.05               # small survival bonus (keep robot upright)
     rew_termination: float = -1.0          # fall penalty (discourage falling)
     rew_track_vel_hard: float = 0.5        # sharp velocity tracking (exp(-error*10))
-    rew_low_speed: float = 0.2             # discrete: -1 too slow, +2 good, -2 wrong dir
+    rew_low_speed: float = 1.5             # discrete: -1 too slow, +2 good, -2 wrong dir (7.5× vs Run 11)
     rew_dof_vel: float = -1e-5             # penalise joint velocities (prevents vibration)
     rew_dof_acc: float = -5e-9             # penalise joint accelerations (CRITICAL anti-vibration)
     rew_lat_vel: float = 0.3              # lateral velocity tracking (prevents sideways drift)

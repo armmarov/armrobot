@@ -382,13 +382,43 @@ All training runs, changes made, and results. Most recent run at the bottom.
   - Prevents standing-still exploit: robot must actively step or it falls
 - All other params unchanged from Run 10
 
-**Results (iter 0 → ?, training in progress):**
+**Results (iter 0 → ~2681, standing still exploit — push forces too weak):**
 
 | Iter | Reward | Episode Length | Noise Std | Value Loss | mean_vel_x |
 |------|--------|---------------|-----------|------------|------------|
+| 11 | 298 | 58 | 1.00 | 772 | 0.69 |
+| 233 | 4,113 | 695 | 0.96 | 7,126 | -0.06 |
+| 570 | 3,498 | 571 | 0.82 | 109 | -0.07 |
+| ~910 | 6,145 | 954 | 0.63 | 22,193 | -0.00 |
+| ~1250 | 6,726 | 999 | 0.42 | 5.7 | 0.02 |
+| ~2260 | ~6,800 | ~999 | 0.19 | — | 0.13 |
+| ~2681 | ~6,800 | 636 | 0.19 | — | -0.02 |
 
-**Observations (so far):**
-- Training starting...
+**Evaluation:**
+- **Push forces (±0.4 m/s) too weak** — robot learned to brace against pushes while standing still
+- `mean_base_vel_x ≈ 0`, `feet_air_time = 0` throughout entire training
+- `low_speed = -70.7` (heavily penalized but drowned out by standing rewards)
+- Brief blip at iter ~2260 (vel_x=0.13) but reverted by iter ~2681
+- Noise std 0.19 = fully converged on standing still
+- Root cause: tracking_sigma=5.0 gives 94% reward for standing; push forces only 0.4 m/s
+- Also: ref_joint_pos uses `exp(-2*mean(diff²))` instead of EngineAI's `mean(exp(-2*diff²))` — dilutes gait signal
+
+---
+
+## Run 12 — Anti-Standing-Still: Stronger Pushes + Reward Rebalance
+
+**Date:** 2026-03-09
+
+**Changes from Run 11 (4 targeted fixes for standing-still exploit):**
+1. **ref_joint_pos formula**: `exp(-2*mean(diff²))` → **`mean(exp(-2*diff²))`** — matches EngineAI exactly. Per-joint exp then average. Previous formula diluted gait error (3 active joints out of 12 → only 25% signal).
+2. **tracking_sigma**: 5.0 → **2.5** — standing still now gives ~87% tracking reward instead of ~94%. More gradient pressure to actually match commanded velocity.
+3. **low_speed**: 0.2 → **1.5** (7.5× stronger) — standing-still penalty was -0.2/step, drowned by +7.3/step positive rewards. Now -1.5/step for too-slow, +3.0/step for matching speed.
+4. **Push forces**: ±0.4 m/s @ 8s → **±1.0 m/s @ 4s** — 2.5× stronger, 2× more frequent. Angular: 0.6 → 0.8 rad/s. Matching EngineAI base config (1.0 m/s). Robot must step reactively or fall.
+
+**All other params unchanged from Run 11.**
+
+**Results:**
+*Training in progress...*
 
 ---
 

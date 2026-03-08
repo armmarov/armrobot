@@ -480,10 +480,11 @@ def compute_rewards(
     ang_vel_error = torch.square(commands[:, 2] - ang_vel_b[:, 2])
     rew_ang_vel = cfg.rew_tracking_ang_vel * torch.exp(-ang_vel_error / cfg.rew_tracking_sigma)
 
-    # --- 2. gait reference tracking ---
-    # use MEAN (not sum) so each joint contributes equally regardless of DOF count
-    ref_diff_sq = torch.mean(torch.square(ref_joint_pos - joint_pos_rel), dim=-1)
-    rew_ref_pos = cfg.rew_ref_joint_pos * torch.exp(-2.0 * ref_diff_sq)
+    # --- 2. gait reference tracking (EngineAI formula: per-joint exp, then mean) ---
+    # exp(-2*diff²) per joint, then average — each joint penalized independently
+    ref_diff = ref_joint_pos - joint_pos_rel
+    per_joint_reward = torch.exp(-2.0 * ref_diff.pow(2))  # [N, 12]
+    rew_ref_pos = cfg.rew_ref_joint_pos * per_joint_reward.mean(dim=1)
 
     # --- 3. feet air time ---
     # reward when foot lands (first contact) proportional to how long it was in the air
