@@ -80,6 +80,13 @@ class ArmrobotleggingEnv(DirectRLEnv):
         # policy dt for convenience
         self._dt = self.cfg.sim.dt * self.cfg.decimation
 
+        # --- push force (domain randomization) ---
+        if self.cfg.push_robots:
+            self._push_interval_steps = int(
+                self.cfg.push_interval_s / self._dt
+            )
+            self._push_step_counter = 0
+
     # ================================================================
     # Scene
     # ================================================================
@@ -113,6 +120,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.actions = actions.clone().clamp(-1.0, 1.0)
         # store joint velocities for acceleration penalty
         self.last_joint_vel[:] = self.robot.data.joint_vel[:, self._leg_joint_ids]
+        # apply random push forces (velocity impulses) at intervals
+        self._apply_push_forces()
 
     def _apply_action(self) -> None:
         # PD position target = default_pos + scale * action
@@ -399,6 +408,39 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.still_commands[env_ids] = (
             torch.norm(self.commands[env_ids], dim=1) < 0.1
         )
+
+    # ================================================================
+    # Helpers — push forces (domain randomization)
+    # ================================================================
+
+    def _apply_push_forces(self):
+        """Apply random velocity impulses to robot base at fixed intervals.
+
+        Matches EngineAI: every push_interval_s seconds, add random linear (xy)
+        and angular (rpy) velocity to the robot base. Forces the robot to take
+        reactive steps to maintain balance, preventing the standing-still exploit.
+        """
+        if not self.cfg.push_robots:
+            return
+        self._push_step_counter += 1
+        if self._push_step_counter % self._push_interval_steps != 0:
+            return
+
+        # sample random velocity impulses
+        vel = self.robot.data.root_vel_w.clone()  # [N, 6] = [lin_x, lin_y, lin_z, ang_x, ang_y, ang_z]
+        # add random linear velocity in xy
+        vel[:, 0] += torch.empty(self.num_envs, device=self.device).uniform_(
+            -self.cfg.max_push_vel_xy, self.cfg.max_push_vel_xy
+        )
+        vel[:, 1] += torch.empty(self.num_envs, device=self.device).uniform_(
+            -self.cfg.max_push_vel_xy, self.cfg.max_push_vel_xy
+        )
+        # add random angular velocity in roll/pitch/yaw
+        vel[:, 3:6] += torch.empty(self.num_envs, 3, device=self.device).uniform_(
+            -self.cfg.max_push_ang_vel, self.cfg.max_push_ang_vel
+        )
+        # write back to simulation
+        self.robot.write_root_velocity_to_sim(vel)
 
 
 # =====================================================================

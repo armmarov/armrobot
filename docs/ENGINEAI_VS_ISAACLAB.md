@@ -484,9 +484,9 @@ default_joint_angles = {
 
 ### Our IsaacLab
 
-**None.** Zero domain randomization. Fixed friction (1.0/1.0), no mass/COM changes, no motor noise, no lag, no pushes, no observation noise.
+**Push disturbances only (Run 11).** Velocity impulse every 8s: ±0.4 m/s linear xy, ±0.6 rad/s angular rpy. Fixed friction (1.0/1.0), no mass/COM changes, no motor noise, no lag, no observation noise.
 
-**Impact:** Without randomization, the robot can exploit a single strategy (stand still) that works perfectly in the fixed environment. Push disturbances in particular force the robot to actively step to maintain balance, which naturally leads to walking behavior.
+**Impact:** Push disturbances force the robot to actively step to maintain balance, which naturally leads to walking behavior. Remaining randomization (friction, mass, lag) still needed for sim-to-real transfer.
 
 ---
 
@@ -566,17 +566,17 @@ PD gains match exactly.
 - [x] **2. Gait reference hip joint** — uses hip_pitch (idx 0/6) since Run 5
 - [x] **3. Cycle time** — changed 0.64s to 0.8s in Run 3
 - [x] **3b. Gait deadband** — added `ref=0 when |sin_phase| < 0.05` in Run 3
-- [ ] **4. Gait reference only drives 1 joint per leg** — EngineAI drives 3 (hip_yaw + knee + ankle with coupled amplitudes 0.26/0.52/0.26). This is the **#1 reason the robot doesn't walk** — no knee/ankle trajectory means no stepping template.
-- [ ] **5. Phase not frozen on zero commands** — EngineAI freezes gait phase when standing still
-- [ ] **6. Domain randomization (at least push disturbances)** — without pushes the robot can safely stand still; pushes force active stepping
+- [x] **4. Gait reference drives 3 joints per leg** — hip_pitch + knee + ankle (0.26/0.52/0.26 rad) since Run 8/9
+- [x] **5. Phase frozen on zero commands** — added in Run 8
+- [x] **6. Domain randomization (push disturbances)** — added velocity impulse pushes every 8s (±0.4 m/s lin, ±0.6 rad/s ang) matching EngineAI, Run 11
 
 ### Should Fix (improves quality)
 
 - [x] **7. Learning rate** — changed to 1e-5 in Run 4
 - [x] **8. Feet air time: zero-command gating** — added
-- [ ] **9. Contact pattern: add mismatch penalty** — EngineAI gives -0.3 for wrong contact, we give 0.0
+- [x] **9. Contact pattern: mismatch penalty** — changed to EngineAI's [-0.3, +1.0] in Run 8
 - [ ] **10. ref_joint_pos formula** — EngineAI uses `exp(-2*norm(diff)) - 0.2*clamp(norm,0,0.5)`, we use `exp(-2*mean(diff²))` (missing linear penalty)
-- [ ] **11. default_joint_pos formula** — EngineAI uses `exp(-abs_yaw_roll * 100)`, we use `exp(-sq * 20)` (less sharp)
+- [x] **11. default_joint_pos formula** — updated to EngineAI's `exp(-abs_sum * 100)` in Run 8
 - [ ] **12. orientation formula** — EngineAI combines euler angles + projected gravity; we use projected gravity only
 - [ ] **13. feet_clearance formula** — EngineAI scales target by swing_curve (sinusoidal); we use flat target
 - [ ] **14. Command curriculum** — start narrow, expand when tracking > 80%
@@ -627,7 +627,7 @@ PD gains match exactly.
   - [ ] Observation noise (level=1.5, per-sensor scales)
   - [ ] Motor lag (5-15 steps)
   - [ ] IMU lag (1-10 steps)
-- [ ] **22. Add push disturbances** (every 8s, force up to 0.4 m/s, torque up to 0.6 rad/s)
+- [x] **22. Add push disturbances** (every 8s, ±0.4 m/s lin, ±0.6 rad/s ang) — added Run 11
 - [ ] **23. Increase sim frequency** — 200Hz to 1000Hz (dt=0.001, decimation=10)
 - [ ] **24. Symmetry loss** (legged_gym: sym_coef=1.0, left-right mirror enforcement)
 - [ ] **25. Terrain curriculum** — 20 levels, 7 terrain types

@@ -88,6 +88,12 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     cmd_resample_time_s: float = 8.0             # resample commands every N seconds
     cmd_still_ratio: float = 0.1                 # probability of zero-velocity commands
 
+    # ---------- domain randomization: push forces ----------
+    push_robots: bool = True            # enable random pushes (velocity impulses)
+    push_interval_s: float = 8.0        # push every N seconds (matching EngineAI)
+    max_push_vel_xy: float = 0.4        # max linear velocity impulse [m/s]
+    max_push_ang_vel: float = 0.6       # max angular velocity impulse [rad/s]
+
     # ---------- termination ----------
     termination_height: float = 0.45    # reset if base z < this [m]
     base_height_target: float = 0.8132  # nominal standing height [m]

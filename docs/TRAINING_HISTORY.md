@@ -353,10 +353,39 @@ All training runs, changes made, and results. Most recent run at the bottom.
   - Key diagnostic: `Episode/mean_base_vel_x` — tracks whether robot is actually moving forward
   - Enables mid-training checks instead of waiting for convergence + visual evaluation
 
+**Results (iter 0 → 246, killed — standing still exploit again):**
+
+| Iter | Reward | Episode Length | Noise Std | Value Loss | mean_vel_x |
+|------|--------|---------------|-----------|------------|------------|
+| 6 | 284 | 55 | 1.00 | 1,475 | 0.69 |
+| 230 | 3,811 | 617 | 0.95 | 535 | -0.10 |
+| 246 | 5,970 | 956 | 0.95 | 237 | 0.00 |
+
+**Evaluation:**
+- **Same standing-still exploit as Runs 5-7** — robot survives full episodes but `mean_base_vel_x ≈ 0`, `feet_air_time = 0`
+- Per-term diagnostics confirmed: `low_speed = -218` (heavily penalized but not enough), `tracking_lin_vel` high (sigma=5.0 gives 95% reward for standing still)
+- Legs-only URDF + 3-joint gait reference are correct, but **reward imbalance remains** without domain randomization
+- Killed at iter 246 to add push forces for Run 11
+
+---
+
+## Run 11 — Push Force Domain Randomization
+
+**Date:** 2026-03-08
+
+**Changes from Run 10:**
+- **Push forces (velocity impulses)** — matching EngineAI:
+  - Every 8 seconds, apply random velocity impulse to robot base
+  - Linear: ±0.4 m/s in xy
+  - Angular: ±0.6 rad/s in roll/pitch/yaw
+  - Forces robot to take reactive steps to maintain balance
+  - Prevents standing-still exploit: robot must actively step or it falls
+- All other params unchanged from Run 10
+
 **Results (iter 0 → ?, training in progress):**
 
-| Iter | Reward | Episode Length | Noise Std | Value Loss |
-|------|--------|---------------|-----------|------------|
+| Iter | Reward | Episode Length | Noise Std | Value Loss | mean_vel_x |
+|------|--------|---------------|-----------|------------|------------|
 
 **Observations (so far):**
 - Training starting...

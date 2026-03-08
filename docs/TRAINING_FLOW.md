@@ -285,7 +285,7 @@ sequenceDiagram
     Note over P,R: Each training step (50 Hz)
 
     P->>E: action [4096, 12]
-    E->>E: _pre_physics_step()<br/>save prev_actions, clamp action
+    E->>E: _pre_physics_step()<br/>save prev_actions, clamp action<br/>apply push forces (every 8s)
 
     loop 4× (decimation)
         E->>R: _apply_action()<br/>set_joint_position_target()
