@@ -58,6 +58,22 @@ class ArmrobotleggingEnv(DirectRLEnv):
         )
         self._cmd_counter = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
+        # --- per-term reward tracking for diagnostics ---
+        self._reward_term_names = [
+            "tracking_lin_vel", "tracking_ang_vel", "ref_joint_pos", "feet_air_time",
+            "contact_pattern", "orientation", "base_height", "vel_mismatch",
+            "action_smoothness", "energy", "alive", "feet_clearance",
+            "default_joint_pos", "feet_distance", "foot_slip", "track_vel_hard",
+            "low_speed", "dof_vel", "dof_acc", "lat_vel", "termination",
+        ]
+        self._episode_reward_sums = {
+            name: torch.zeros(self.num_envs, device=self.device)
+            for name in self._reward_term_names
+        }
+        # track base velocity for diagnostics
+        self._episode_base_vel_x_sum = torch.zeros(self.num_envs, device=self.device)
+        self._episode_step_count = torch.zeros(self.num_envs, device=self.device)
+
         # cached tensors
         self._gravity_w = torch.tensor([0.0, 0.0, -1.0], device=self.device).unsqueeze(0)
 
@@ -155,7 +171,7 @@ class ArmrobotleggingEnv(DirectRLEnv):
         foot_pos_w = self.robot.data.body_pos_w[:, self._foot_body_ids, :]
         foot_vel_w = self.robot.data.body_vel_w[:, self._foot_body_ids, :]
 
-        return compute_rewards(
+        total, reward_terms = compute_rewards(
             cfg=self.cfg,
             dt=self._dt,
             lin_vel_b=self.robot.data.root_lin_vel_b,
@@ -181,6 +197,14 @@ class ArmrobotleggingEnv(DirectRLEnv):
             device=self.device,
             num_envs=self.num_envs,
         )
+
+        # accumulate per-term episode sums for diagnostics
+        for name, value in reward_terms.items():
+            self._episode_reward_sums[name] += value
+        self._episode_base_vel_x_sum += self.robot.data.root_lin_vel_b[:, 0]
+        self._episode_step_count += 1
+
+        return total
 
     # ================================================================
     # Termination
@@ -214,6 +238,24 @@ class ArmrobotleggingEnv(DirectRLEnv):
         if env_ids is None:
             env_ids = self.robot._ALL_INDICES
         super()._reset_idx(env_ids)
+
+        # --- log per-term reward diagnostics on episode end ---
+        if len(env_ids) > 0:
+            extras_log = {}
+            steps = self._episode_step_count[env_ids].clamp(min=1)
+            for name in self._reward_term_names:
+                avg = torch.mean(self._episode_reward_sums[name][env_ids])
+                extras_log["Episode_Reward/" + name] = avg.item()
+            # log mean base velocity (key diagnostic: is the robot actually moving?)
+            mean_vel_x = torch.mean(self._episode_base_vel_x_sum[env_ids] / steps)
+            extras_log["Episode/mean_base_vel_x"] = mean_vel_x.item()
+            self.extras["log"] = extras_log
+
+            # reset episode accumulators
+            for name in self._reward_term_names:
+                self._episode_reward_sums[name][env_ids] = 0.0
+            self._episode_base_vel_x_sum[env_ids] = 0.0
+            self._episode_step_count[env_ids] = 0.0
 
         # reset robot to default state
         joint_pos = self.robot.data.default_joint_pos[env_ids]
@@ -387,7 +429,7 @@ def compute_rewards(
     reset_terminated: torch.Tensor,
     device: torch.device,
     num_envs: int,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
 
     # --- 1. velocity tracking ---
     lin_vel_error = torch.sum(torch.square(commands[:, :2] - lin_vel_b[:, :2]), dim=-1)
@@ -552,7 +594,32 @@ def compute_rewards(
     total = (total_positive + rew_smooth + rew_energy + rew_foot_slip
              + rew_clearance + rew_dof_vel + rew_dof_acc)
 
-    # termination penalty (applied after clamping — always felt)
-    total += cfg.rew_termination * reset_terminated.float()
+    rew_term = cfg.rew_termination * reset_terminated.float()
+    total += rew_term
 
-    return total
+    # per-term dict for diagnostics
+    reward_terms = {
+        "tracking_lin_vel": rew_lin_vel,
+        "tracking_ang_vel": rew_ang_vel,
+        "ref_joint_pos": rew_ref_pos,
+        "feet_air_time": rew_air_time,
+        "contact_pattern": rew_contact_pattern,
+        "orientation": rew_orient,
+        "base_height": rew_height,
+        "vel_mismatch": rew_vel_mismatch,
+        "action_smoothness": rew_smooth,
+        "energy": rew_energy,
+        "alive": rew_alive,
+        "feet_clearance": rew_clearance,
+        "default_joint_pos": rew_default_pos,
+        "feet_distance": rew_feet_dist,
+        "foot_slip": rew_foot_slip,
+        "track_vel_hard": rew_track_vel_hard,
+        "low_speed": rew_low_speed,
+        "dof_vel": rew_dof_vel,
+        "dof_acc": rew_dof_acc,
+        "lat_vel": rew_lat_vel,
+        "termination": rew_term,
+    }
+
+    return total, reward_terms

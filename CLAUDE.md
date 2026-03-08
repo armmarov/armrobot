@@ -12,9 +12,10 @@
 4. After complete fix or update, **do code review before running training again**
 5. Always update **PPO_NETWORK.md** and **TRAINING_FLOW.md** if any changes are made to structure or hyperparameters
 6. Always update changes and results in **TRAINING_HISTORY.md**
-7. Check **ENGINEAI_VS_ISAACLAB.md** for gap analysis and reference EngineAI code at:
-   - `/home/armmarov/work/robot/engineai/engineai_rl_workspace_ori/` (PM01 RL workspace, original)
-   - `/home/armmarov/work/robot/engineai/engineai_legged_gym/` (ZqSA01 legged_gym, original)
+7. Check **ENGINEAI_VS_ISAACLAB.md** for gap analysis and reference code at:
+   - `/home/armmarov/work/robot/engineai/engineai_rl_workspace_ori/` (PM01 RL workspace, original from EngineAI)
+   - `/home/armmarov/work/robot/engineai/engineai_legged_gym/` (ZqSA01 legged_gym, original from EngineAI)
+   - `/home/armmarov/work/robot/engineai/whole_body_tracking/` (G1 Unitree whole-body tracking, latest IsaacLab-based)
 
 ## Key Files
 

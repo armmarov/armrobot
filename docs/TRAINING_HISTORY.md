@@ -349,6 +349,9 @@ All training runs, changes made, and results. Most recent run at the bottom.
   - Benefits: fewer collision bodies → faster physics, no spurious upper-body contacts
 - **Termination contacts:** removed `link_knee_pitch_l/r` and `link_torso_yaw` (no collision geometry in new URDF), kept `link_base` + height check
 - All reward/gait params unchanged from Run 9
+- **Added per-term reward diagnostics** — each of 21 reward terms logged individually to TensorBoard + console via `extras["log"]`
+  - Key diagnostic: `Episode/mean_base_vel_x` — tracks whether robot is actually moving forward
+  - Enables mid-training checks instead of waiting for convergence + visual evaluation
 
 **Results (iter 0 → ?, training in progress):**
 

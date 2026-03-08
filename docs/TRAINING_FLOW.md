@@ -20,7 +20,7 @@ flowchart TB
             B3["8. _apply_action() × 4 (decimation)<br/>target = default_pos + 0.5 × action<br/>→ set_joint_position_target()"]
             B4["9. Physics steps (4 × 0.005s = 0.02s)"]
             B5["10. _get_dones()<br/>Update gait phase + contacts + commands<br/>Check termination"]
-            B6["11. _get_rewards()<br/>Compute 19 reward terms → scalar"]
+            B6["11. _get_rewards()<br/>Compute 21 reward terms → scalar + per-term log"]
             B7["12. _reset_idx(fallen_envs)<br/>Reset state + resample commands"]
             B8["13. _get_observations()<br/>Build 64-dim obs tensor"]
             B1 --> B2 --> B3 --> B4 --> B5 --> B6 --> B7 --> B8
@@ -95,10 +95,10 @@ flowchart LR
 flowchart TB
     subgraph DONES["_get_dones() — runs BEFORE rewards"]
         direction TB
-        GP["_update_gait_phase()<br/>phase = (step × dt × dec / 0.8) % 1<br/>phase[still_commands] = 0 (freeze when standing)<br/>sin_phase = sin(2π × phase)<br/>ref_pos: hip_yaw(2/8) + knee(3/9) + ankle(4/10)<br/>amplitudes: 0.26/0.52/0.26 rad<br/>deadband: ref=0 when |sin|<0.05"]
+        GP["_update_gait_phase()<br/>phase = (step × dt × dec / 0.8) % 1<br/>phase[still_commands] = 0 (freeze when standing)<br/>sin_phase = sin(2π × phase)<br/>ref_pos: hip_pitch(0/6) + knee(3/9) + ankle(4/10)<br/>amplitudes: 0.26/0.52/0.26 rad<br/>deadband: ref=0 when |sin|<0.05"]
         FC["_update_foot_contact()<br/>contact = foot_z < 0.03m<br/>first_contact = contact & !last_contact<br/>air_time_on_contact = air_time × first_contact<br/>air_time reset on contact"]
         CMD["_update_commands()<br/>Every 400 steps: resample vx, vy, yaw_rate<br/>10% chance zero command"]
-        TERM["Termination check<br/>fell = base_z < 0.45m<br/>bad_contact = knee/base/torso on ground"]
+        TERM["Termination check<br/>fell = base_z < 0.45m<br/>bad_contact = base on ground<br/>(legs-only URDF: knee/torso have no collision)"]
         GP --> FC --> CMD --> TERM
     end
 
@@ -252,7 +252,8 @@ flowchart TB
 │  │    vel_mis: 0.5       │  │    ankle: 52 Nm                │   │
 │  │    alive: 0.05        │  │                                │   │
 │  │    smooth: -0.003     │  │  Init: 0.9m, knees bent        │   │
-│  │    energy: -0.0001    │  │  URDF: pm01.urdf               │   │
+│  │    energy: -0.0001    │  │  URDF: pm01_only_legs_simple_   │   │
+│  │        collision.urdf           │   │
 │  │    clearance: -1.6    │  │                                │   │
 │  │    default_pos: 0.8   │  │                                │   │
 │  │    feet_dist: 0.2     │  │                                │   │
@@ -295,9 +296,9 @@ sequenceDiagram
 
     E->>E: _get_dones()<br/>├─ _update_gait_phase()<br/>├─ _update_foot_contact()<br/>├─ _update_commands()<br/>└─ check termination
 
-    E->>E: _get_rewards()<br/>compute 19 reward terms
+    E->>E: _get_rewards()<br/>compute 21 reward terms<br/>accumulate per-term episode sums
 
-    E->>E: _reset_idx(fallen_envs)<br/>reset state + new commands
+    E->>E: _reset_idx(fallen_envs)<br/>log per-term rewards to extras["log"]<br/>reset state + new commands
 
     E->>E: _get_observations()<br/>build 64-dim tensor
 
