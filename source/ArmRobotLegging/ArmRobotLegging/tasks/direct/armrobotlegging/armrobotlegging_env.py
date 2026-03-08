@@ -247,8 +247,10 @@ class ArmrobotleggingEnv(DirectRLEnv):
     def _update_gait_phase(self):
         """Compute gait phase and reference joint positions from episode time.
 
-        Matches EngineAI exactly: drives hip_yaw (idx 2/8) + knee_pitch (idx 3/9) +
+        Hybrid approach: drives hip_pitch (idx 0/6) + knee_pitch (idx 3/9) +
         ankle_pitch (idx 4/10) with coupled amplitudes (0.26/0.52/0.26 rad).
+        Uses hip_pitch instead of EngineAI's hip_yaw to avoid spinning
+        (hip_yaw caused 360° spinning in Run 4/8 without obs history + domain rand).
         Phase is frozen when commands are zero (standing still).
         """
         episode_time = self.episode_length_buf * self.cfg.sim.dt * self.cfg.decimation
@@ -259,8 +261,9 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.cos_phase = torch.cos(2.0 * math.pi * phase)
 
         # generate reference joint positions (sinusoidal bipedal gait)
-        # drives hip_yaw (idx 2/8), knee_pitch (idx 3/9), ankle_pitch (idx 4/10)
-        # matching EngineAI's compute_ref_state() exactly
+        # drives hip_pitch (idx 0/6), knee_pitch (idx 3/9), ankle_pitch (idx 4/10)
+        # hip_pitch for forward/backward leg swing (avoids spinning from hip_yaw)
+        # knee + ankle from EngineAI for proper stepping template
         scale = self.cfg.target_joint_pos_scale   # 0.26 rad
         scale2 = 2.0 * scale                      # 0.52 rad (knee bends at 2× hip)
         self.ref_joint_pos.zero_()
@@ -271,8 +274,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
 
         # left leg swings when sin_phase < 0 (zero out positive values)
         sin_pos_l[sin_pos_l > 0] = 0
-        # hip_yaw_l (idx 2)
-        self.ref_joint_pos[:, 2] = sin_pos_l * scale
+        # hip_pitch_l (idx 0): forward/backward leg swing
+        self.ref_joint_pos[:, 0] = sin_pos_l * scale
         # knee_pitch_l (idx 3): bend at double amplitude
         self.ref_joint_pos[:, 3] = -sin_pos_l * scale2
         # ankle_pitch_l (idx 4): compensate
@@ -280,8 +283,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
 
         # right leg swings when sin_phase > 0 (zero out negative values)
         sin_pos_r[sin_pos_r < 0] = 0
-        # hip_yaw_r (idx 8)
-        self.ref_joint_pos[:, 8] = -sin_pos_r * scale
+        # hip_pitch_r (idx 6): forward/backward leg swing
+        self.ref_joint_pos[:, 6] = -sin_pos_r * scale
         # knee_pitch_r (idx 9)
         self.ref_joint_pos[:, 9] = sin_pos_r * scale2
         # ankle_pitch_r (idx 10)
