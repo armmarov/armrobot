@@ -34,6 +34,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
         # --- buffers ---
         self.actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
         self.prev_actions = torch.zeros_like(self.actions)
+        self.prev_prev_actions = torch.zeros_like(self.actions)
+        self.last_joint_vel = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
         self.commands = torch.zeros(self.num_envs, 3, device=self.device)
 
         # gait phase tracking
@@ -46,6 +48,9 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.last_foot_contact = torch.zeros(self.num_envs, 2, dtype=torch.bool, device=self.device)
         self.first_contact = torch.zeros(self.num_envs, 2, dtype=torch.bool, device=self.device)
         self.air_time_on_contact = torch.zeros(self.num_envs, 2, device=self.device)
+
+        # track which envs have zero commands (for gait phase freezing)
+        self.still_commands = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
         # command resample counter (in policy steps)
         self._cmd_resample_steps = int(
@@ -87,8 +92,11 @@ class ArmrobotleggingEnv(DirectRLEnv):
     # ================================================================
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
+        self.prev_prev_actions[:] = self.prev_actions
         self.prev_actions[:] = self.actions
         self.actions = actions.clone().clamp(-1.0, 1.0)
+        # store joint velocities for acceleration penalty
+        self.last_joint_vel[:] = self.robot.data.joint_vel[:, self._leg_joint_ids]
 
     def _apply_action(self) -> None:
         # PD position target = default_pos + scale * action
@@ -143,8 +151,13 @@ class ArmrobotleggingEnv(DirectRLEnv):
     # ================================================================
 
     def _get_rewards(self) -> torch.Tensor:
+        # foot body state: positions [N, 2, 3] and velocities [N, 2, 6]
+        foot_pos_w = self.robot.data.body_pos_w[:, self._foot_body_ids, :]
+        foot_vel_w = self.robot.data.body_vel_w[:, self._foot_body_ids, :]
+
         return compute_rewards(
             cfg=self.cfg,
+            dt=self._dt,
             lin_vel_b=self.robot.data.root_lin_vel_b,
             ang_vel_b=self.robot.data.root_ang_vel_b,
             base_quat=self.robot.data.root_quat_w,
@@ -152,14 +165,18 @@ class ArmrobotleggingEnv(DirectRLEnv):
             joint_pos_rel=self.robot.data.joint_pos[:, self._leg_joint_ids]
             - self.robot.data.default_joint_pos[:, self._leg_joint_ids],
             joint_vel=self.robot.data.joint_vel[:, self._leg_joint_ids],
+            last_joint_vel=self.last_joint_vel,
             actions=self.actions,
             prev_actions=self.prev_actions,
+            prev_prev_actions=self.prev_prev_actions,
             commands=self.commands,
             ref_joint_pos=self.ref_joint_pos,
             sin_phase=self.sin_phase,
             foot_contact=self.last_foot_contact,
             first_contact=self.first_contact,
             air_time_on_contact=self.air_time_on_contact,
+            foot_pos_w=foot_pos_w,
+            foot_vel_w=foot_vel_w,
             reset_terminated=self.reset_terminated,
             device=self.device,
             num_envs=self.num_envs,
@@ -211,10 +228,13 @@ class ArmrobotleggingEnv(DirectRLEnv):
         # reset buffers
         self.actions[env_ids] = 0.0
         self.prev_actions[env_ids] = 0.0
+        self.prev_prev_actions[env_ids] = 0.0
+        self.last_joint_vel[env_ids] = 0.0
         self.foot_air_time[env_ids] = 0.0
         self.last_foot_contact[env_ids] = False
         self.first_contact[env_ids] = False
         self.air_time_on_contact[env_ids] = 0.0
+        self.still_commands[env_ids] = False
         self._cmd_counter[env_ids] = 0
 
         # sample new velocity commands
@@ -225,45 +245,50 @@ class ArmrobotleggingEnv(DirectRLEnv):
     # ================================================================
 
     def _update_gait_phase(self):
-        """Compute gait phase and reference joint positions from episode time."""
+        """Compute gait phase and reference joint positions from episode time.
+
+        Matches EngineAI exactly: drives hip_yaw (idx 2/8) + knee_pitch (idx 3/9) +
+        ankle_pitch (idx 4/10) with coupled amplitudes (0.26/0.52/0.26 rad).
+        Phase is frozen when commands are zero (standing still).
+        """
         episode_time = self.episode_length_buf * self.cfg.sim.dt * self.cfg.decimation
         phase = (episode_time / self.cfg.cycle_time) % 1.0
+        # freeze phase when standing still (matching EngineAI)
+        phase[self.still_commands] = 0.0
         self.sin_phase = torch.sin(2.0 * math.pi * phase)
         self.cos_phase = torch.cos(2.0 * math.pi * phase)
 
         # generate reference joint positions (sinusoidal bipedal gait)
-        scale = self.cfg.target_joint_pos_scale
+        # drives hip_yaw (idx 2/8), knee_pitch (idx 3/9), ankle_pitch (idx 4/10)
+        # matching EngineAI's compute_ref_state() exactly
+        scale = self.cfg.target_joint_pos_scale   # 0.26 rad
+        scale2 = 2.0 * scale                      # 0.52 rad (knee bends at 2× hip)
         self.ref_joint_pos.zero_()
 
-        # left leg swings when sin_phase < 0
-        left_swing = self.sin_phase < 0
-        # hip_pitch_l (idx 0): flex forward
-        self.ref_joint_pos[:, 0] = torch.where(
-            left_swing, self.sin_phase * scale, self.ref_joint_pos[:, 0]
-        )
-        # knee_pitch_l (idx 3): bend
-        self.ref_joint_pos[:, 3] = torch.where(
-            left_swing, -self.sin_phase * 2.0 * scale, self.ref_joint_pos[:, 3]
-        )
-        # ankle_pitch_l (idx 4): compensate
-        self.ref_joint_pos[:, 4] = torch.where(
-            left_swing, self.sin_phase * scale, self.ref_joint_pos[:, 4]
-        )
+        sin_pos = self.sin_phase.clone()
+        sin_pos_l = sin_pos.clone()
+        sin_pos_r = sin_pos.clone()
 
-        # right leg swings when sin_phase > 0
-        right_swing = self.sin_phase > 0
-        # hip_pitch_r (idx 6)
-        self.ref_joint_pos[:, 6] = torch.where(
-            right_swing, -self.sin_phase * scale, self.ref_joint_pos[:, 6]
-        )
+        # left leg swings when sin_phase < 0 (zero out positive values)
+        sin_pos_l[sin_pos_l > 0] = 0
+        # hip_yaw_l (idx 2)
+        self.ref_joint_pos[:, 2] = sin_pos_l * scale
+        # knee_pitch_l (idx 3): bend at double amplitude
+        self.ref_joint_pos[:, 3] = -sin_pos_l * scale2
+        # ankle_pitch_l (idx 4): compensate
+        self.ref_joint_pos[:, 4] = sin_pos_l * scale
+
+        # right leg swings when sin_phase > 0 (zero out negative values)
+        sin_pos_r[sin_pos_r < 0] = 0
+        # hip_yaw_r (idx 8)
+        self.ref_joint_pos[:, 8] = -sin_pos_r * scale
         # knee_pitch_r (idx 9)
-        self.ref_joint_pos[:, 9] = torch.where(
-            right_swing, self.sin_phase * 2.0 * scale, self.ref_joint_pos[:, 9]
-        )
+        self.ref_joint_pos[:, 9] = sin_pos_r * scale2
         # ankle_pitch_r (idx 10)
-        self.ref_joint_pos[:, 10] = torch.where(
-            right_swing, -self.sin_phase * scale, self.ref_joint_pos[:, 10]
-        )
+        self.ref_joint_pos[:, 10] = -sin_pos_r * scale
+
+        # deadband near zero crossing (matching EngineAI)
+        self.ref_joint_pos[torch.abs(sin_pos) < 0.05] = 0.0
 
     # ================================================================
     # Helpers — foot contact
@@ -301,7 +326,11 @@ class ArmrobotleggingEnv(DirectRLEnv):
             self._cmd_counter[env_ids] = 0
 
     def _resample_commands(self, env_ids):
-        """Sample new velocity commands for given envs."""
+        """Sample new velocity commands for given envs.
+
+        Matches EngineAI: filters small commands to zero, tracks still_commands
+        for gait phase freezing.
+        """
         n = len(env_ids)
         self.commands[env_ids, 0] = torch.empty(n, device=self.device).uniform_(
             *self.cfg.cmd_lin_vel_x_range
@@ -315,6 +344,16 @@ class ArmrobotleggingEnv(DirectRLEnv):
         # some envs get zero commands (standing still)
         still_mask = torch.rand(n, device=self.device) < self.cfg.cmd_still_ratio
         self.commands[env_ids[still_mask]] = 0.0
+        # filter small commands to zero (matching EngineAI)
+        cmd_norm = torch.norm(self.commands[env_ids, :2], dim=1)
+        small_cmd = cmd_norm < 0.2
+        self.commands[env_ids[small_cmd], :2] = 0.0
+        small_yaw = torch.abs(self.commands[env_ids, 2]) < 0.2
+        self.commands[env_ids[small_yaw], 2] = 0.0
+        # track which envs are standing still (for gait phase freezing)
+        self.still_commands[env_ids] = (
+            torch.norm(self.commands[env_ids], dim=1) < 0.1
+        )
 
 
 # =====================================================================
@@ -323,20 +362,25 @@ class ArmrobotleggingEnv(DirectRLEnv):
 
 def compute_rewards(
     cfg: ArmrobotleggingEnvCfg,
+    dt: float,
     lin_vel_b: torch.Tensor,
     ang_vel_b: torch.Tensor,
     base_quat: torch.Tensor,
     base_pos_z: torch.Tensor,
     joint_pos_rel: torch.Tensor,
     joint_vel: torch.Tensor,
+    last_joint_vel: torch.Tensor,
     actions: torch.Tensor,
     prev_actions: torch.Tensor,
+    prev_prev_actions: torch.Tensor,
     commands: torch.Tensor,
     ref_joint_pos: torch.Tensor,
     sin_phase: torch.Tensor,
     foot_contact: torch.Tensor,
     first_contact: torch.Tensor,
     air_time_on_contact: torch.Tensor,
+    foot_pos_w: torch.Tensor,
+    foot_vel_w: torch.Tensor,
     reset_terminated: torch.Tensor,
     device: torch.device,
     num_envs: int,
@@ -350,7 +394,8 @@ def compute_rewards(
     rew_ang_vel = cfg.rew_tracking_ang_vel * torch.exp(-ang_vel_error / cfg.rew_tracking_sigma)
 
     # --- 2. gait reference tracking ---
-    ref_diff_sq = torch.sum(torch.square(ref_joint_pos - joint_pos_rel), dim=-1)
+    # use MEAN (not sum) so each joint contributes equally regardless of DOF count
+    ref_diff_sq = torch.mean(torch.square(ref_joint_pos - joint_pos_rel), dim=-1)
     rew_ref_pos = cfg.rew_ref_joint_pos * torch.exp(-2.0 * ref_diff_sq)
 
     # --- 3. feet air time ---
@@ -359,16 +404,17 @@ def compute_rewards(
     rew_air_time = cfg.rew_feet_air_time * torch.sum(
         (air_time_on_contact - 0.5) * first_contact.float(), dim=-1
     )
+    # no air time reward when standing still (matching EngineAI)
+    rew_air_time *= (torch.norm(commands[:, :2], dim=1) > 0.1)
 
-    # --- 4. feet contact pattern ---
+    # --- 4. feet contact pattern (matching EngineAI: +1.0 match, -0.3 mismatch) ---
     # left foot should be in stance when sin_phase >= 0, swing when < 0
     # right foot should be in stance when sin_phase < 0, swing when >= 0
-    contact_f = foot_contact.float()
-    desired_contact_left = (sin_phase >= 0).float()
-    desired_contact_right = (sin_phase < 0).float()
+    desired_contact_left = (sin_phase >= 0)
+    desired_contact_right = (sin_phase < 0)
     desired_contact = torch.stack([desired_contact_left, desired_contact_right], dim=-1)
-    contact_match = 1.0 - torch.abs(desired_contact - contact_f)
-    rew_contact_pattern = cfg.rew_feet_contact_number * torch.mean(contact_match, dim=-1)
+    contact_reward = torch.where(foot_contact == desired_contact, 1.0, -0.3)
+    rew_contact_pattern = cfg.rew_feet_contact_number * torch.mean(contact_reward, dim=-1)
 
     # --- 5. orientation (stay upright) ---
     gravity_w = torch.zeros(num_envs, 3, device=device)
@@ -388,16 +434,98 @@ def compute_rewards(
         + torch.exp(-torch.sum(torch.square(ang_vel_b[:, :2]), dim=-1) * 5.0)
     )
 
-    # --- 8. action smoothness penalty ---
-    action_diff = torch.sum(torch.square(actions - prev_actions), dim=-1)
-    action_mag = torch.sum(torch.square(actions), dim=-1)
-    rew_smooth = cfg.rew_action_smoothness * (action_diff + 0.5 * action_mag)
+    # --- 8. action smoothness penalty (EngineAI 2nd-order version) ---
+    # term_1: consecutive action difference
+    term_1 = torch.sum(torch.square(actions - prev_actions), dim=-1)
+    # term_2: 2nd-order smoothness (prevents rapid acceleration of actions)
+    term_2 = torch.sum(torch.square(actions + prev_prev_actions - 2.0 * prev_actions), dim=-1)
+    # term_3: action magnitude
+    term_3 = 0.05 * torch.sum(torch.abs(actions), dim=-1)
+    rew_smooth = cfg.rew_action_smoothness * (term_1 + term_2 + term_3)
 
     # --- 9. energy penalty ---
     rew_energy = cfg.rew_energy * torch.sum(torch.square(actions) * torch.abs(joint_vel), dim=-1)
 
     # --- 10. alive bonus ---
     rew_alive = cfg.rew_alive * torch.ones(num_envs, device=device)
+
+    # --- 11. feet clearance (swing foot height tracking) ---
+    # compute swing mask: left swings when sin < 0, right swings when sin > 0
+    swing_mask = torch.zeros(num_envs, 2, device=device)
+    swing_mask[:, 0] = (sin_phase < 0).float()   # left foot swing
+    swing_mask[:, 1] = (sin_phase > 0).float()   # right foot swing
+    # swing curve magnitude (how high the foot should be)
+    swing_curve = torch.zeros(num_envs, 2, device=device)
+    swing_curve[:, 0] = torch.clamp(-sin_phase, min=0.0)  # left: -sin when sin < 0
+    swing_curve[:, 1] = torch.clamp(sin_phase, min=0.0)   # right: sin when sin > 0
+    # foot heights from ground
+    foot_heights = foot_pos_w[:, :, 2]  # [N, 2]
+    # target height = swing_curve * target_feet_height, penalize deviation
+    clearance_error = (swing_curve * cfg.target_feet_height - foot_heights) * swing_mask
+    rew_clearance = cfg.rew_feet_clearance * torch.norm(clearance_error, dim=1)
+
+    # --- 12. default joint position (matching EngineAI formula) ---
+    # EngineAI penalizes hip_pitch/hip_roll (yaw/roll in their naming: idx 0,1,6,7)
+    # sharply with exp(-abs_sum * 100), plus mild linear penalty on all joints
+    yaw_roll_dev = torch.sum(
+        torch.abs(joint_pos_rel[:, [0, 1, 6, 7]]), dim=-1
+    )  # hip_pitch_l, hip_roll_l, hip_pitch_r, hip_roll_r
+    rew_default_pos = cfg.rew_default_joint_pos * (
+        torch.exp(-yaw_roll_dev * 100.0) - 0.01 * torch.norm(joint_pos_rel, dim=1)
+    )
+
+    # --- 13. feet distance (keep feet within proper range) ---
+    foot_xy = foot_pos_w[:, :, :2]  # [N, 2, 2] — xy positions of both feet
+    foot_dist = torch.norm(foot_xy[:, 0, :] - foot_xy[:, 1, :], dim=1)
+    d_min = torch.clamp(foot_dist - cfg.min_feet_dist, max=0.0)   # negative if too close
+    d_max = torch.clamp(foot_dist - cfg.max_feet_dist, min=0.0)   # positive if too far
+    rew_feet_dist = cfg.rew_feet_distance * 0.5 * (
+        torch.exp(-torch.abs(d_min) * 100.0) + torch.exp(-torch.abs(d_max) * 100.0)
+    )
+
+    # --- 14. foot slip penalty (penalize foot velocity during contact) ---
+    foot_speed_xy = torch.norm(foot_vel_w[:, :, :2], dim=-1)  # [N, 2] linear vel xy
+    foot_slip = torch.sqrt(foot_speed_xy + 1e-6) * foot_contact.float()
+    rew_foot_slip = cfg.rew_foot_slip * torch.sum(foot_slip, dim=-1)
+
+    # --- 15. track_vel_hard (sharp velocity tracking — forces actual locomotion) ---
+    lin_vel_error_hard = torch.norm(commands[:, :2] - lin_vel_b[:, :2], dim=1)
+    lin_vel_error_hard_exp = torch.exp(-lin_vel_error_hard * 10.0)
+    ang_vel_error_hard = torch.abs(commands[:, 2] - ang_vel_b[:, 2])
+    ang_vel_error_hard_exp = torch.exp(-ang_vel_error_hard * 10.0)
+    linear_error_penalty = 0.2 * (lin_vel_error_hard + ang_vel_error_hard)
+    rew_track_vel_hard = cfg.rew_track_vel_hard * (
+        (lin_vel_error_hard_exp + ang_vel_error_hard_exp) / 2.0 - linear_error_penalty
+    )
+
+    # --- 16. low_speed (discrete reward — punish too slow, reward good speed) ---
+    abs_speed = torch.abs(lin_vel_b[:, 0])
+    abs_command = torch.abs(commands[:, 0])
+    speed_too_low = abs_speed < 0.5 * abs_command
+    speed_too_high = abs_speed > 1.2 * abs_command
+    speed_desired = ~(speed_too_low | speed_too_high)
+    sign_mismatch = torch.sign(lin_vel_b[:, 0]) != torch.sign(commands[:, 0])
+    rew_low_speed_val = torch.zeros(num_envs, device=device)
+    rew_low_speed_val[speed_too_low] = -1.0
+    rew_low_speed_val[speed_desired] = 2.0
+    rew_low_speed_val[sign_mismatch] = -2.0   # highest priority
+    rew_low_speed_val *= (abs_command > 0.1)   # only when commanded to move
+    rew_low_speed = cfg.rew_low_speed * rew_low_speed_val
+
+    # --- 17. dof_vel penalty (penalize all joint velocities — discourages vibration) ---
+    rew_dof_vel = cfg.rew_dof_vel * torch.sum(torch.square(joint_vel), dim=-1)
+
+    # --- 18. dof_acc penalty (penalize joint accelerations — CRITICAL for anti-vibration) ---
+    dof_acc = (joint_vel - last_joint_vel) / dt
+    rew_dof_acc = cfg.rew_dof_acc * torch.sum(torch.square(dof_acc), dim=-1)
+
+    # --- 19. knee_distance (prevent sideways shuffling — keep knees properly spaced) ---
+    # use knee body positions — approximate from foot positions and base
+    # knee bodies: link_knee_pitch_l, link_knee_pitch_r
+    # For now, use the XY distance between feet as proxy (already have foot_pos_w)
+    # We add a specific reward for lateral (Y) velocity tracking
+    lat_vel_error = torch.square(commands[:, 1] - lin_vel_b[:, 1])
+    rew_lat_vel = cfg.rew_lat_vel * torch.exp(-lat_vel_error * 10.0)
 
     # --- sum all positive rewards, clamp >= 0, then add penalties ---
     total_positive = (
@@ -410,10 +538,16 @@ def compute_rewards(
         + rew_height
         + rew_vel_mismatch
         + rew_alive
+        + rew_default_pos
+        + rew_feet_dist
+        + rew_track_vel_hard
+        + rew_low_speed
+        + rew_lat_vel
     )
     total_positive = torch.clamp(total_positive, min=0.0)
 
-    total = total_positive + rew_smooth + rew_energy
+    total = (total_positive + rew_smooth + rew_energy + rew_foot_slip
+             + rew_clearance + rew_dof_vel + rew_dof_acc)
 
     # termination penalty (applied after clamping — always felt)
     total += cfg.rew_termination * reset_terminated.float()

@@ -80,7 +80,7 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     action_scale: float = 0.5  # [rad] — policy output in [-1,1] * scale + default_pos
 
     # ---------- gait parameters ----------
-    cycle_time: float = 0.64              # gait cycle duration [s]
+    cycle_time: float = 0.8               # gait cycle duration [s] (matching EngineAI)
     target_joint_pos_scale: float = 0.26  # amplitude of reference gait [rad]
 
     # ---------- velocity command ranges ----------
@@ -99,20 +99,34 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
 
     # ---------- reward scales ----------
     # velocity tracking
-    rew_tracking_lin_vel: float = 1.5
-    rew_tracking_ang_vel: float = 1.0
-    rew_tracking_sigma: float = 0.25
+    rew_tracking_lin_vel: float = 1.4
+    rew_tracking_ang_vel: float = 1.1
+    rew_tracking_sigma: float = 5.0
 
     # gait quality
-    rew_ref_joint_pos: float = 2.0       # follow gait reference
+    rew_ref_joint_pos: float = 2.2       # follow gait reference
     rew_feet_air_time: float = 1.5       # reward proper swing duration
-    rew_feet_contact_number: float = 1.2  # reward proper contact pattern per phase
+    rew_feet_contact_number: float = 1.4  # reward proper contact pattern per phase
     rew_orientation: float = 1.0         # stay upright
     rew_base_height: float = 0.2         # maintain target height
+    rew_feet_clearance: float = -1.6     # penalise low swing foot (error norm)
+    rew_default_joint_pos: float = 0.8   # keep hip pitch/roll near default
+    rew_feet_distance: float = 0.2       # penalise feet too close or too far
+
+    # feet distance limits [m]
+    min_feet_dist: float = 0.15
+    max_feet_dist: float = 0.8
+    target_feet_height: float = 0.1      # swing foot target height [m]
 
     # penalties
-    rew_action_smoothness: float = -0.005  # penalise jerk
+    rew_action_smoothness: float = -0.003  # penalise jerk
     rew_energy: float = -0.0001            # penalise torque * velocity
     rew_vel_mismatch: float = 0.5          # penalise z-vel and xy-ang-vel
-    rew_alive: float = 0.15               # stay alive bonus
-    rew_termination: float = -2.0          # penalty on fall
+    rew_foot_slip: float = -0.1            # penalise foot sliding during contact
+    rew_alive: float = 0.05               # small survival bonus (keep robot upright)
+    rew_termination: float = -1.0          # fall penalty (discourage falling)
+    rew_track_vel_hard: float = 0.5        # sharp velocity tracking (exp(-error*10))
+    rew_low_speed: float = 0.2             # discrete: -1 too slow, +2 good, -2 wrong dir
+    rew_dof_vel: float = -1e-5             # penalise joint velocities (prevents vibration)
+    rew_dof_acc: float = -5e-9             # penalise joint accelerations (CRITICAL anti-vibration)
+    rew_lat_vel: float = 0.3              # lateral velocity tracking (prevents sideways drift)
