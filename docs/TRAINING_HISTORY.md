@@ -297,15 +297,66 @@ All training runs, changes made, and results. Most recent run at the bottom.
 
 **All other params unchanged from Run 7.**
 
-**Results (iter 0 → ?, training in progress):**
+**Results (iter 0 → 139, killed — hip_yaw spinning):**
 
 | Iter | Reward | Episode Length | Noise Std | Value Loss |
 |------|--------|---------------|-----------|------------|
 | 13 | 321 | 64 | 1.00 | 648 |
+| 50 | 417 | 78 | 1.00 | 383 |
+| 100 | 747 | 135 | 0.99 | 917 |
+| 139 | 377 | 74 | 0.99 | 1,178 |
+
+**Evaluation:**
+- **Killed at iter 139** — reward crashed from 747 → 377, episode length 135 → 74
+- Value loss spiking to 1,178 (critic struggling)
+- **Root cause: hip_yaw spinning problem** — same as Run 4. Without observation history (15 steps) and domain randomization, hip_yaw causes rotation instead of walking.
+- EngineAI can use hip_yaw because they have obs history + domain rand + asymmetric critic
+
+**Decision:** Switch to hip_pitch (idx 0/6) + knee (idx 3/9) + ankle (idx 4/10) for Run 9.
+
+---
+
+## Run 9 — Hip Pitch + Knee + Ankle (3 joints/leg, no spinning)
+
+**Date:** 2026-03-08
+
+**Changes from Run 8:**
+- Gait reference: **hip_yaw (idx 2/8) → hip_pitch (idx 0/6)** — avoids spinning
+- Still drives 3 joints per leg: hip_pitch + knee_pitch + ankle_pitch (0.26/0.52/0.26 rad)
+- All other Run 8 improvements retained (phase freeze, contact penalty, small cmd filter, etc.)
+
+**All other params unchanged from Run 8.**
+
+**Results (iter 0 → 49, killed — switching to legs-only URDF):**
+
+| Iter | Reward | Episode Length | Noise Std | Value Loss |
+|------|--------|---------------|-----------|------------|
+| 49 | 480 | 93 | 0.99 | 1,546 |
+
+**Decision:** Killed at iter 49 to switch from full-body `pm01.urdf` to `pm01_only_legs_simple_collision.urdf`. Only 3 minutes in — no significant progress lost.
+
+---
+
+## Run 10 — Legs-Only URDF with Simple Collisions
+
+**Date:** 2026-03-08
+
+**Changes from Run 9:**
+- **URDF: `pm01.urdf` → `pm01_only_legs_simple_collision.urdf`**
+  - Upper body joints (j12-j23) changed from revolute to **fixed** — locked in place
+  - Removed waist/arms/head actuator configs (no longer needed)
+  - Collision simplified: base=box, feet=mesh, everything else=no collision
+  - Benefits: fewer collision bodies → faster physics, no spurious upper-body contacts
+- **Termination contacts:** removed `link_knee_pitch_l/r` and `link_torso_yaw` (no collision geometry in new URDF), kept `link_base` + height check
+- All reward/gait params unchanged from Run 9
+
+**Results (iter 0 → ?, training in progress):**
+
+| Iter | Reward | Episode Length | Noise Std | Value Loss |
+|------|--------|---------------|-----------|------------|
 
 **Observations (so far):**
-- Training just started — early metrics similar to previous runs
-- Monitoring in progress...
+- Training starting...
 
 ---
 

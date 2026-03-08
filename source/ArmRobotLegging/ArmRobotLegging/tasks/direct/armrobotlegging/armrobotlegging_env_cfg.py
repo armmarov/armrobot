@@ -71,9 +71,7 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     foot_body_names: list = ["link_ankle_roll_l", "link_ankle_roll_r"]
     termination_contact_body_names: list = [
         "link_base",
-        "link_knee_pitch_l",
-        "link_knee_pitch_r",
-        "link_torso_yaw",
+        # knee/torso have no collision in legs-only simple collision URDF
     ]
 
     # ---------- action ----------

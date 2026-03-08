@@ -4,7 +4,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 
-PM01_URDF_PATH = os.path.join(os.path.dirname(__file__), "pm01_assets", "urdf", "pm01.urdf")
+PM01_URDF_PATH = os.path.join(os.path.dirname(__file__), "pm01_assets", "urdf", "pm01_only_legs_simple_collision.urdf")
 
 PM01_CFG = ArticulationCfg(
     spawn=sim_utils.UrdfFileCfg(
@@ -94,40 +94,6 @@ PM01_CFG = ArticulationCfg(
             damping=0.2,
             armature=0.0067,
         ),
-        "waist": ImplicitActuatorCfg(
-            joint_names_expr=["j12_waist_yaw"],
-            effort_limit_sim=52.0,
-            velocity_limit_sim=35.2,
-            stiffness=50.0,
-            damping=5.0,
-            armature=0.0067,
-        ),
-        "arms": ImplicitActuatorCfg(
-            joint_names_expr=[
-                "j13_shoulder_pitch_l",
-                "j14_shoulder_roll_l",
-                "j15_shoulder_yaw_l",
-                "j16_elbow_pitch_l",
-                "j17_elbow_yaw_l",
-                "j18_shoulder_pitch_r",
-                "j19_shoulder_roll_r",
-                "j20_shoulder_yaw_r",
-                "j21_elbow_pitch_r",
-                "j22_elbow_yaw_r",
-            ],
-            effort_limit_sim=52.0,
-            velocity_limit_sim=35.2,
-            stiffness=40.0,
-            damping=4.0,
-            armature=0.0067,
-        ),
-        "head": ImplicitActuatorCfg(
-            joint_names_expr=["j23_head_yaw"],
-            effort_limit_sim=52.0,
-            velocity_limit_sim=35.2,
-            stiffness=40.0,
-            damping=4.0,
-            armature=0.0067,
-        ),
+        # Upper body joints (j12-j23) are fixed in the legs-only URDF — no actuators needed
     },
 )
