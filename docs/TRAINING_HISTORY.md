@@ -417,6 +417,37 @@ All training runs, changes made, and results. Most recent run at the bottom.
 
 **All other params unchanged from Run 11.**
 
+**Results (iter 0 → 1456, killed — standing still exploit):**
+
+| Iter | Reward | Episode Length | Noise Std | Value Loss | mean_vel_x |
+|------|--------|---------------|-----------|------------|------------|
+| 30 | 280 | 63 | 0.99 | 356 | 0.50 |
+| 113 | 446 | 87 | 0.97 | 321 | 0.02 |
+| 443 | 1,240 | 265 | 0.85 | 95 | 0.01 |
+| 779 | 1,148 | 215 | 0.68 | 35,532 | -0.05 |
+| 1119 | 1,670 | 278 | 0.52 | 310 | 0.24 |
+| 1456 | 2,046 | 309 | 0.41 | 290 | -0.03 |
+
+**Evaluation:**
+- **Same standing-still exploit despite all 4 fixes** — vel_x transient blip at iter 1119 (0.24) but reverted
+- `low_speed` went POSITIVE (+33.9) while vel_x ≈ 0 — robot exploits zero/small commands
+- Root cause: `cmd_still_ratio=0.1` + small command filter (zeroing cmds < 0.2) creates many zero commands where standing still is correct behavior
+- **Key insight: the standing-still exploit is a command distribution problem, not a reward scale problem**
+
+---
+
+## Run 13 — Forward-Only Commands (Structural Fix)
+
+**Date:** 2026-03-09
+
+**Changes from Run 12 (structural fix for standing-still exploit):**
+1. **Forward-only commands**: `cmd_lin_vel_x_range = (0.3, 1.0)` — every command requires forward movement (minimum 0.3 m/s). Was (-1.0, 1.0) which allowed zero/backward commands.
+2. **No zero commands**: `cmd_still_ratio = 0.0` — was 0.1 (10% zero commands exploited by standing).
+3. **Removed small command filter** — previously zeroed linear cmds < 0.2 and yaw < 0.2, creating more zero commands.
+4. **Reduced lateral/yaw ranges**: y: ±0.3→±0.2, yaw: ±1.0→±0.5 — simplify the task to focus on forward walking first.
+
+All Run 12 reward params retained (sigma=2.5, low_speed=1.5, pushes ±1.0@4s, per-joint ref).
+
 **Results:**
 *Training in progress...*
 
@@ -432,4 +463,5 @@ All training runs, changes made, and results. Most recent run at the bottom.
 6. **Add features incrementally** — changing too many things at once makes debugging impossible
 7. **Anti-vibration penalties work** — dof_acc (-5e-9) + dof_vel (-1e-5) eliminated ankle oscillation (Run 6→7)
 8. **Gait reference must be multi-joint** — driving only one joint is insufficient; need hip + knee + ankle coupled reference like EngineAI
-9. **Domain randomization prevents standing-still exploits** — random pushes force active balancing = stepping
+9. **Domain randomization alone doesn't prevent standing-still** — pushes up to ±1.0 m/s at 4s intervals weren't enough (Runs 11-12)
+10. **Standing-still exploit is a command distribution problem** — zero/small commands let the robot get positive reward by standing. Fix: forward-only commands (min 0.3 m/s), no zero commands, no small command filter

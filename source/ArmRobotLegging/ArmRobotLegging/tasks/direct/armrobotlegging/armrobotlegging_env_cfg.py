@@ -82,11 +82,11 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     target_joint_pos_scale: float = 0.26  # amplitude of reference gait [rad]
 
     # ---------- velocity command ranges ----------
-    cmd_lin_vel_x_range: tuple = (-1.0, 1.0)   # [m/s]
-    cmd_lin_vel_y_range: tuple = (-0.3, 0.3)    # [m/s]
-    cmd_ang_vel_z_range: tuple = (-1.0, 1.0)    # [rad/s]
+    cmd_lin_vel_x_range: tuple = (0.3, 1.0)     # [m/s] forward only — eliminates standing-still exploit
+    cmd_lin_vel_y_range: tuple = (-0.2, 0.2)    # [m/s] reduced lateral range
+    cmd_ang_vel_z_range: tuple = (-0.5, 0.5)    # [rad/s] reduced yaw range
     cmd_resample_time_s: float = 8.0             # resample commands every N seconds
-    cmd_still_ratio: float = 0.1                 # probability of zero-velocity commands
+    cmd_still_ratio: float = 0.0                 # no zero commands (was 0.1 — exploited by standing)
 
     # ---------- domain randomization: push forces ----------
     push_robots: bool = True            # enable random pushes (velocity impulses)

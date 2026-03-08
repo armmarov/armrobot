@@ -382,8 +382,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
     def _resample_commands(self, env_ids):
         """Sample new velocity commands for given envs.
 
-        Matches EngineAI: filters small commands to zero, tracks still_commands
-        for gait phase freezing.
+        Run 13: forward-only commands (0.3-1.0 m/s) to eliminate standing-still exploit.
+        No zero commands, no small command filter.
         """
         n = len(env_ids)
         self.commands[env_ids, 0] = torch.empty(n, device=self.device).uniform_(
@@ -395,15 +395,10 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.commands[env_ids, 2] = torch.empty(n, device=self.device).uniform_(
             *self.cfg.cmd_ang_vel_z_range
         )
-        # some envs get zero commands (standing still)
-        still_mask = torch.rand(n, device=self.device) < self.cfg.cmd_still_ratio
-        self.commands[env_ids[still_mask]] = 0.0
-        # filter small commands to zero (matching EngineAI)
-        cmd_norm = torch.norm(self.commands[env_ids, :2], dim=1)
-        small_cmd = cmd_norm < 0.2
-        self.commands[env_ids[small_cmd], :2] = 0.0
-        small_yaw = torch.abs(self.commands[env_ids, 2]) < 0.2
-        self.commands[env_ids[small_yaw], 2] = 0.0
+        # zero commands (standing still) — disabled for Run 13 (was exploited)
+        if self.cfg.cmd_still_ratio > 0:
+            still_mask = torch.rand(n, device=self.device) < self.cfg.cmd_still_ratio
+            self.commands[env_ids[still_mask]] = 0.0
         # track which envs are standing still (for gait phase freezing)
         self.still_commands[env_ids] = (
             torch.norm(self.commands[env_ids], dim=1) < 0.1
