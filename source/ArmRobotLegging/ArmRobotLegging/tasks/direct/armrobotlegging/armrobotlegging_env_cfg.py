@@ -90,9 +90,9 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
 
     # ---------- domain randomization: push forces ----------
     push_robots: bool = True            # enable random pushes (velocity impulses)
-    push_interval_s: float = 4.0        # push every N seconds (more frequent than EngineAI)
-    max_push_vel_xy: float = 1.0        # max linear velocity impulse [m/s] (EngineAI base=1.0)
-    max_push_ang_vel: float = 0.8       # max angular velocity impulse [rad/s]
+    push_interval_s: float = 5.0        # push every N seconds (gentler — let robot learn stepping first)
+    max_push_vel_xy: float = 0.5        # max linear velocity impulse [m/s] (halved from Run 13)
+    max_push_ang_vel: float = 0.4       # max angular velocity impulse [rad/s] (halved from Run 13)
 
     # ---------- termination ----------
     termination_height: float = 0.45    # reset if base z < this [m]
@@ -101,36 +101,36 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     # ---------- contact thresholds ----------
     contact_height_threshold: float = 0.03  # [m] — foot z-height below this = contact
 
-    # ---------- reward scales ----------
+    # ---------- reward scales (Run 14: all /5 to fix value loss spikes) ----------
     # velocity tracking
-    rew_tracking_lin_vel: float = 1.4
-    rew_tracking_ang_vel: float = 1.1
+    rew_tracking_lin_vel: float = 0.28       # was 1.4
+    rew_tracking_ang_vel: float = 0.22       # was 1.1
     rew_tracking_sigma: float = 2.5
 
     # gait quality
-    rew_ref_joint_pos: float = 2.2       # follow gait reference
-    rew_feet_air_time: float = 1.5       # reward proper swing duration
-    rew_feet_contact_number: float = 1.4  # reward proper contact pattern per phase
-    rew_orientation: float = 1.0         # stay upright
-    rew_base_height: float = 0.2         # maintain target height
-    rew_feet_clearance: float = -1.6     # penalise low swing foot (error norm)
-    rew_default_joint_pos: float = 0.8   # keep hip pitch/roll near default
-    rew_feet_distance: float = 0.2       # penalise feet too close or too far
+    rew_ref_joint_pos: float = 0.44          # was 2.2
+    rew_feet_air_time: float = 0.8           # was 1.5/5=0.3, BOOSTED to 0.8 (force stepping)
+    rew_feet_contact_number: float = 0.28    # was 1.4
+    rew_orientation: float = 0.2             # was 1.0
+    rew_base_height: float = 0.2             # was 0.2 — KEEP (already low, important for posture)
+    rew_feet_clearance: float = -0.8         # was -1.6, /2 but still strong (penalise shuffling)
+    rew_default_joint_pos: float = 0.16      # was 0.8
+    rew_feet_distance: float = 0.04          # was 0.2
 
     # feet distance limits [m]
     min_feet_dist: float = 0.15
     max_feet_dist: float = 0.8
-    target_feet_height: float = 0.1      # swing foot target height [m]
+    target_feet_height: float = 0.15         # was 0.1 — raised to encourage higher steps
 
     # penalties
-    rew_action_smoothness: float = -0.003  # penalise jerk
-    rew_energy: float = -0.0001            # penalise torque * velocity
-    rew_vel_mismatch: float = 0.5          # penalise z-vel and xy-ang-vel
-    rew_foot_slip: float = -0.1            # penalise foot sliding during contact
-    rew_alive: float = 0.05               # small survival bonus (keep robot upright)
-    rew_termination: float = -1.0          # fall penalty (discourage falling)
-    rew_track_vel_hard: float = 0.5        # sharp velocity tracking (exp(-error*10))
-    rew_low_speed: float = 1.5             # discrete: -1 too slow, +2 good, -2 wrong dir (7.5× vs Run 11)
-    rew_dof_vel: float = -1e-5             # penalise joint velocities (prevents vibration)
-    rew_dof_acc: float = -5e-9             # penalise joint accelerations (CRITICAL anti-vibration)
-    rew_lat_vel: float = 0.3              # lateral velocity tracking (prevents sideways drift)
+    rew_action_smoothness: float = -0.0006   # was -0.003
+    rew_energy: float = -0.00002             # was -0.0001
+    rew_vel_mismatch: float = 0.1            # was 0.5
+    rew_foot_slip: float = -0.02             # was -0.1
+    rew_alive: float = 0.01                  # was 0.05
+    rew_termination: float = -0.2            # was -1.0
+    rew_track_vel_hard: float = 0.1          # was 0.5
+    rew_low_speed: float = 0.3               # was 1.5
+    rew_dof_vel: float = -2e-6               # was -1e-5
+    rew_dof_acc: float = -1e-9               # was -5e-9
+    rew_lat_vel: float = 0.06                # was 0.3

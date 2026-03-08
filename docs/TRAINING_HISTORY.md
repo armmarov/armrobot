@@ -448,8 +448,78 @@ All training runs, changes made, and results. Most recent run at the bottom.
 
 All Run 12 reward params retained (sigma=2.5, low_speed=1.5, pushes ±1.0@4s, per-joint ref).
 
-**Results:**
-*Training in progress...*
+**Results (training in progress — BREAKTHROUGH):**
+
+| Iter | Reward | Episode Length | Noise Std | Value Loss | mean_vel_x | low_speed |
+|------|--------|---------------|-----------|------------|------------|-----------|
+| 41 | 344 | 67 | 0.99 | 1,087 | 0.55 | -29 |
+| 220 | 998 | 176 | 0.94 | 5,741 | 0.35 | -105 |
+| 551 | 1,972 | 305 | 0.86 | 1,003 | 0.29 | +39 |
+| 884 | 2,960 | 379 | 0.74 | 892 | 0.56 | +725 |
+| 1216 | 3,549 | 452 | 0.60 | 57,006 | **0.85** | +967 |
+| 1549 | 1,874 | 263 | 0.53 | 65,408 | **0.92** | +355 |
+| 1884 | 3,437 | 419 | 0.44 | 688 | 0.60 | +980 |
+| 2228 | 4,151 | 500 | 0.40 | 22 | 0.65 | +1,292 |
+| 2549 | 301 | 52 | 0.40 | 86,949 | 0.70 | +16 |
+| 2873 | 413 | 61 | 0.40 | 10,009 | 0.50 | +63 |
+| 3192 | 1,461 | 232 | 0.39 | 771 | 0.34 | +110 |
+| 3517 | 2,043 | 275 | 0.37 | 1,015 | 0.41 | +421 |
+| 3847 | 2,401 | 315 | 0.36 | 1,040 | 0.36 | +498 |
+| 4179 | 2,453 | 301 | 0.34 | 68,196 | 0.57 | +1,011 |
+| 4850 | 2,839 | 342 | 0.32 | 4,568 | 0.53 | +661 |
+| 5187 | 2,693 | 317 | 0.31 | 81,189 | 0.64 | +1,272 |
+
+**BREAKTHROUGH at iter 1216:**
+- `mean_base_vel_x = 0.852` — first run EVER to achieve sustained forward velocity
+- `low_speed = +967` — robot matching commanded forward speeds (0.3-1.0 m/s)
+- `feet_air_time = 0` — flat-footed shuffle, not proper stepping gait
+- `base_height = 0.7` — crouching (target 0.8132)
+- Forward-only commands eliminated the standing-still exploit that plagued Runs 5-12
+
+**Final results (killed at iter ~9560, converged):**
+
+| Metric | Final Range | Notes |
+|--------|------------|-------|
+| Reward | 3,000 - 4,251 (ATH) | Oscillates due to value loss spikes |
+| vel_x | 0.4 - 0.76 | Sustained forward locomotion |
+| Episode length | 360 - 500 (~7-10s) | Falls after ~8s average |
+| Noise std | 0.25 - 0.27 | Converged |
+| feet_air_time | 0.0 | Never lifts feet — shuffling gait |
+| Value loss | 5 - 111K | Recurring spikes (9 cycles, 1 fatal crash at iter 2549) |
+
+**Visual evaluation (model_9400.pt):**
+- ✅ Robot walks forward — first walking policy in project history!
+- ❌ Falls after ~7-8 seconds — can't survive full 20s episode
+- ❌ Shuffling gait — feet never lift off ground
+- ❌ Recurring value loss spikes (80K-111K) — reward magnitude too high for critic
+
+**Known issues for Run 14:**
+1. Reward magnitudes too large (~3000-4000) → value loss spikes → unstable training
+2. No foot lifting (feet_air_time=0) → poor balance, shuffling gait
+3. Short survival (~8s) → falls from push forces, can't recover
+4. Episode length ~400/1000 → only 40% survival rate
+
+---
+
+## Run 14 — Reward Scaling + Gait Quality
+
+**Date:** 2026-03-09
+
+**Changes from Run 13:**
+1. **All rewards scaled down 5×** — fixes value loss spikes (target rewards ~600 vs ~3000)
+2. **feet_air_time boosted** — 0.3 (5× base) → 0.8 (force actual stepping)
+3. **feet_clearance kept strong** — -0.8 (penalize shuffling), target height 0.10 → 0.15m
+4. **Push forces halved** — ±0.5 m/s @ 5s (gentler, learn stepping first)
+5. **num_learning_epochs** — 2 → 5 (more critic updates, stabilize value function)
+6. **base_height kept at 0.2** — not scaled down, important for posture
+
+**Goals:** Eliminate value loss spikes, get feet_air_time > 0, longer survival (ep len > 600)
+
+**Results (training in progress):**
+
+| Iter | Reward | Episode Length | Noise Std | Value Loss | mean_vel_x | feet_air_time |
+|------|--------|---------------|-----------|------------|------------|---------------|
+| — | — | — | — | — | — | — |
 
 ---
 

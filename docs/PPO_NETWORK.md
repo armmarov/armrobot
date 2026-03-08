@@ -161,8 +161,8 @@ flowchart TB
 flowchart TB
     subgraph NUMBERS["Key Numbers"]
         direction LR
-        N1["num_envs = 4096<br/>num_steps_per_env = 48<br/>num_mini_batches = 4<br/>num_learning_epochs = 2"]
-        N2["total_transitions = 48 × 4096 = 196,608<br/>mini_batch_size = 196,608 / 4 = 49,152<br/>updates_per_iter = 4 batches × 2 epochs = 8"]
+        N1["num_envs = 4096<br/>num_steps_per_env = 48<br/>num_mini_batches = 4<br/>num_learning_epochs = 5"]
+        N2["total_transitions = 48 × 4096 = 196,608<br/>mini_batch_size = 196,608 / 4 = 49,152<br/>updates_per_iter = 4 batches × 5 epochs = 20"]
         N1 --> N2
     end
 
@@ -295,7 +295,7 @@ flowchart TB
     end
 
     FORWARD --> LOSS --> BACKWARD --> CLIP_GRAD --> UPDATE
-    UPDATE -->|"repeat 4 mini-batches × 2 epochs = 8 updates per iteration"| FORWARD
+    UPDATE -->|"repeat 4 mini-batches × 5 epochs = 20 updates per iteration"| FORWARD
 ```
 
 ### What drives the learning

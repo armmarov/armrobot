@@ -103,7 +103,7 @@ flowchart TB
     end
 
     subgraph FILES3["Files & Parameters"]
-        F3["<b>armrobotlegging_env_cfg.py</b><br/>cycle_time = 0.8s<br/>target_joint_pos_scale = 0.26<br/>termination_height = 0.45<br/>contact_height_threshold = 0.03<br/>cmd_resample_time_s = 8.0<br/>cmd_still_ratio = 0.1"]
+        F3["<b>armrobotlegging_env_cfg.py</b><br/>cycle_time = 0.8s<br/>target_joint_pos_scale = 0.26<br/>termination_height = 0.45<br/>contact_height_threshold = 0.03<br/>cmd_resample_time_s = 8.0<br/>cmd_still_ratio = 0.0"]
     end
 ```
 
@@ -138,35 +138,35 @@ flowchart TB
         direction TB
 
         subgraph POS["Positive rewards (clamped ≥ 0)"]
-            R1["tracking_lin_vel = 1.4 × exp(-error²/5.0)<br/>Match commanded vx, vy"]
-            R2["tracking_ang_vel = 1.1 × exp(-error²/5.0)<br/>Match commanded yaw rate"]
-            R3["ref_joint_pos = 2.2 × mean(exp(-2 × diff²))<br/>Per-joint exp then average (matching EngineAI)"]
-            R4["feet_air_time = 1.5 × Σ(air_time - 0.5) × first_contact<br/>Reward proper swing duration<br/>(gated: zero when cmd < 0.1)"]
-            R5["feet_contact_number = 1.4 × mean(match)<br/>Correct stance/swing per phase"]
-            R6["orientation = 1.0 × exp(-roll_pitch_err × 10)<br/>Stay upright"]
-            R7["base_height = 0.2 × exp(-height_err × 100)<br/>Maintain 0.8132m"]
-            R8["vel_mismatch = 0.5 × (low_z_vel + low_xy_angvel)<br/>Minimize parasitic motion"]
-            R9["alive = 0.05<br/>Survival bonus"]
-            R12["default_joint_pos = 0.8 × (exp(-hip_dev×100) - 0.01×norm)<br/>Keep hip pitch/roll near default"]
-            R13["feet_distance = 0.2 × exp(-deviation×100)<br/>Keep feet within [0.15m, 0.8m]"]
-            R_TVH["track_vel_hard = 0.5 × (exp(-err×10) - 0.2×err)<br/>Sharp velocity tracking (forces locomotion)"]
-            R_LS["low_speed = 0.2 × discrete(-1/+2/-2)<br/>Punish too slow, reward good speed"]
-            R_LV["lat_vel = 0.3 × exp(-lat_error²×10)<br/>Lateral velocity tracking"]
+            R1["tracking_lin_vel = 0.28 × exp(-error²/2.5)<br/>Match commanded vx, vy (Run 14: /5)"]
+            R2["tracking_ang_vel = 0.22 × exp(-error²/2.5)<br/>Match commanded yaw rate (Run 14: /5)"]
+            R3["ref_joint_pos = 0.44 × mean(exp(-2 × diff²))<br/>Per-joint exp then average (Run 14: /5)"]
+            R4["feet_air_time = 0.8 × Σ(air_time - 0.5) × first_contact<br/>Reward proper swing duration (Run 14: BOOSTED)"]
+            R5["feet_contact_number = 0.28 × mean(match)<br/>Correct stance/swing per phase (Run 14: /5)"]
+            R6["orientation = 0.2 × exp(-roll_pitch_err × 10)<br/>Stay upright (Run 14: /5)"]
+            R7["base_height = 0.2 × exp(-height_err × 100)<br/>Maintain 0.8132m (KEPT — important for posture)"]
+            R8["vel_mismatch = 0.1 × (low_z_vel + low_xy_angvel)<br/>Minimize parasitic motion (Run 14: /5)"]
+            R9["alive = 0.01<br/>Survival bonus (Run 14: /5)"]
+            R12["default_joint_pos = 0.16 × (exp(-hip_dev×100) - 0.01×norm)<br/>Keep hip pitch/roll near default (Run 14: /5)"]
+            R13["feet_distance = 0.04 × exp(-deviation×100)<br/>Keep feet within [0.15m, 0.8m] (Run 14: /5)"]
+            R_TVH["track_vel_hard = 0.1 × (exp(-err×10) - 0.2×err)<br/>Sharp velocity tracking (Run 14: /5)"]
+            R_LS["low_speed = 0.3 × discrete(-1/+2/-2)<br/>Punish too slow, reward good speed (Run 14: /5)"]
+            R_LV["lat_vel = 0.06 × exp(-lat_error²×10)<br/>Lateral velocity tracking (Run 14: /5)"]
         end
 
         CLAMP["torch.clamp(sum, min=0.0)"]
 
         subgraph NEG["Penalties (always applied)"]
-            R10["action_smoothness = -0.003 × (term1 + term2 + term3)<br/>term1: (a_t - a_{t-1})²<br/>term2: (a_t + a_{t-2} - 2×a_{t-1})² (2nd-order)<br/>term3: 0.05 × |a_t|"]
-            R11["energy = -0.0001 × Σ(action² × |vel|)<br/>Efficiency"]
-            R14["feet_clearance = -1.6 × norm(swing_target - foot_height)<br/>Force swing foot to lift"]
-            R15["foot_slip = -0.1 × Σ(√foot_speed × contact)<br/>Penalize sliding on ground"]
-            R16["termination = -1.0 × fell<br/>Fall penalty"]
-            R17["track_vel_hard = 0.5 × (exp(-err×10) - 0.2×err)<br/>Sharp velocity tracking"]
-            R18["low_speed = 0.2 × discrete(-1/+2/-2)<br/>Punish too slow, reward good speed"]
-            R19["dof_vel = -1e-5 × Σ(joint_vel²)<br/>Penalize joint velocities (anti-vibration)"]
-            R20["dof_acc = -5e-9 × Σ((Δvel/dt)²)<br/>Penalize joint accelerations (CRITICAL anti-vibration)"]
-            R21["lat_vel = 0.3 × exp(-lat_error² × 10)<br/>Lateral velocity tracking (prevents sideways drift)"]
+            R10["action_smoothness = -0.0006 × (term1 + term2 + term3)<br/>term1-3: jerk penalties (Run 14: /5)"]
+            R11["energy = -0.00002 × Σ(action² × |vel|)<br/>Efficiency (Run 14: /5)"]
+            R14["feet_clearance = -0.8 × norm(swing_target - foot_height)<br/>Force swing foot to lift (Run 14: /2, target 0.15m)"]
+            R15["foot_slip = -0.02 × Σ(√foot_speed × contact)<br/>Penalize sliding on ground (Run 14: /5)"]
+            R16["termination = -0.2 × fell<br/>Fall penalty (Run 14: /5)"]
+            R17["(moved to positive rewards section)"]
+            R18["(moved to positive rewards section)"]
+            R19["dof_vel = -2e-6 × Σ(joint_vel²)<br/>Penalize joint velocities (Run 14: /5)"]
+            R20["dof_acc = -1e-9 × Σ((Δvel/dt)²)<br/>Penalize joint accelerations (Run 14: /5)"]
+            R21["(moved to positive rewards section)"]
         end
 
         POS --> CLAMP --> NEG
@@ -185,7 +185,7 @@ flowchart TB
         direction TB
         BUF["Rollout buffer filled<br/>48 steps × 4096 envs = 196,608 transitions"]
         GAE["Compute GAE advantages<br/>γ = 0.994, λ = 0.9"]
-        subgraph EPOCHS["2 epochs"]
+        subgraph EPOCHS["5 epochs (Run 14: was 2)"]
             MINI["Split into 4 mini-batches<br/>(196,608 / 4 = 49,152 transitions each)"]
             LOSS["Compute Total Loss:<br/>Policy Loss (clip ratio ε=0.2, uses advantages)<br/>+ Value Loss (coef=1.0, uses returns)<br/>+ Entropy Loss (coef=0.001, uses σ)"]
             BACK["Single backpropagation:<br/>Policy Loss → Actor gradients<br/>Value Loss → Critic gradients<br/>Entropy Loss → log_std gradient"]
@@ -197,7 +197,7 @@ flowchart TB
     end
 
     subgraph FILES6["File"]
-        F6["<b>rsl_rl_ppo_cfg.py</b><br/>num_steps_per_env = 48<br/>gamma = 0.994, lam = 0.9<br/>clip_param = 0.2<br/>entropy_coef = 0.001<br/>learning_rate = 1e-5<br/>num_learning_epochs = 2<br/>num_mini_batches = 4<br/>max_grad_norm = 1.0<br/>desired_kl = 0.01"]
+        F6["<b>rsl_rl_ppo_cfg.py</b><br/>num_steps_per_env = 48<br/>gamma = 0.994, lam = 0.9<br/>clip_param = 0.2<br/>entropy_coef = 0.001<br/>learning_rate = 1e-5<br/>num_learning_epochs = 5 (Run 14: was 2)<br/>num_mini_batches = 4<br/>max_grad_norm = 1.0<br/>desired_kl = 0.01"]
     end
 ```
 
@@ -231,39 +231,39 @@ flowchart TB
 │  │    obs = 64          │  │    lr = 1e-5 (adaptive)        │   │
 │  │                      │  │    clip = 0.2                  │   │
 │  │  GAIT:               │  │    entropy = 0.001             │   │
-│  │    cycle = 0.8s      │  │    epochs = 2                  │   │
+│  │    cycle = 0.8s      │  │    epochs = 5                  │   │
 │  │    scale = 0.26 rad  │  │    mini-batches = 4            │   │
 │  │                      │  │    steps/env = 48              │   │
 │  │  COMMANDS:            │  │    max_iterations = 10000      │   │
-│  │    vx: [-1, 1] m/s   │  │                                │   │
-│  │    vy: [-0.3, 0.3]   │  └────────────────────────────────┘   │
-│  │    yaw: [-1, 1] rad/s│                                       │
+│  │    vx: [0.3, 1] m/s   │  │                                │   │
+│  │    vy: [-0.2, 0.2]   │  └────────────────────────────────┘   │
+│  │    yaw: [-0.5, 0.5]│                                       │
 │  │    resample: 8s       │  ┌────────────────────────────────┐   │
-│  │    still: 10%         │  │  pm01.py (robot config)        │   │
+│  │    still: 0%         │  │  pm01.py (robot config)        │   │
 │  │                      │  │                                │   │
 │  │  REWARDS:             │  │  PD Gains:                     │   │
-│  │    lin_vel: 1.4       │  │    hip_pitch: Kp=70, Kd=7     │   │
-│  │    ang_vel: 1.1       │  │    knee: Kp=70, Kd=7          │   │
-│  │    ref_pos: 2.2       │  │    ankle: Kp=20, Kd=0.2       │   │
-│  │    air_time: 1.5      │  │                                │   │
-│  │    contact: 1.4       │  │  Effort limits:                │   │
-│  │    orient: 1.0        │  │    hip: 164 Nm                 │   │
+│  │    lin_vel: 0.28       │  │    hip_pitch: Kp=70, Kd=7     │   │
+│  │    ang_vel: 0.22       │  │    knee: Kp=70, Kd=7          │   │
+│  │    ref_pos: 0.44       │  │    ankle: Kp=20, Kd=0.2       │   │
+│  │    air_time: 0.8      │  │                                │   │
+│  │    contact: 0.28       │  │  Effort limits:                │   │
+│  │    orient: 0.2        │  │    hip: 164 Nm                 │   │
 │  │    height: 0.2        │  │    knee: 164 Nm                │   │
-│  │    vel_mis: 0.5       │  │    ankle: 52 Nm                │   │
-│  │    alive: 0.05        │  │                                │   │
-│  │    smooth: -0.003     │  │  Init: 0.9m, knees bent        │   │
-│  │    energy: -0.0001    │  │  URDF: pm01_only_legs_simple_   │   │
+│  │    vel_mis: 0.1       │  │    ankle: 52 Nm                │   │
+│  │    alive: 0.01        │  │                                │   │
+│  │    smooth: -0.0006     │  │  Init: 0.9m, knees bent        │   │
+│  │    energy: -2e-5    │  │  URDF: pm01_only_legs_simple_   │   │
 │  │        collision.urdf           │   │
-│  │    clearance: -1.6    │  │                                │   │
-│  │    default_pos: 0.8   │  │                                │   │
-│  │    feet_dist: 0.2     │  │                                │   │
-│  │    foot_slip: -0.1    │  │                                │   │
-│  │    term: -1.0         │  │                                │   │
-│  │    track_hard: 0.5    │  │                                │   │
-│  │    low_speed: 0.2     │  │                                │   │
-│  │    dof_vel: -1e-5     │  │                                │   │
-│  │    dof_acc: -5e-9     │  │                                │   │
-│  │    lat_vel: 0.3       │  └────────────────────────────────┘   │
+│  │    clearance: -0.8    │  │                                │   │
+│  │    default_pos: 0.16   │  │                                │   │
+│  │    feet_dist: 0.04     │  │                                │   │
+│  │    foot_slip: -0.02    │  │                                │   │
+│  │    term: -0.2         │  │                                │   │
+│  │    track_hard: 0.1    │  │                                │   │
+│  │    low_speed: 0.3     │  │                                │   │
+│  │    dof_vel: -2e-6     │  │                                │   │
+│  │    dof_acc: -1e-9     │  │                                │   │
+│  │    lat_vel: 0.06       │  └────────────────────────────────┘   │
 │  │                      │                                       │
 │  │  TERMINATION:         │                                       │
 │  │    height < 0.45m     │                                       │
