@@ -609,6 +609,16 @@ PD gains match exactly.
 - [x] tracking_sigma: 0.25 → 5.0
 - [x] rew_action_smoothness: -0.005 → -0.003
 
+### Run 31 Critical Fixes
+
+- [x] **26. Contact detection: z-height → force-based** (Run 31)
+  - EngineAI: `contact_forces[:, foot_indices, 2] > 5.0N` (physics-aware)
+  - Old: `foot_z < 0.16m` (only 0.012m margin above standing height 0.148m)
+  - Z-height let shuffling feet stay "in contact" — broke all stepping rewards
+  - Now using IsaacLab `ContactSensor` with `track_air_time=True`
+- [x] **27. PPO num_learning_epochs: 5 → 2** (Run 31, match EngineAI)
+  - 5 epochs caused value loss spikes (2.5K-20K) across Runs 29-30
+
 ### Future (sim-to-real transfer)
 
 - [ ] **18. Add observation history** (15 steps for actor, 3 for critic)

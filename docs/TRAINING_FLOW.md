@@ -96,7 +96,7 @@ flowchart TB
     subgraph DONES["_get_dones() — runs BEFORE rewards"]
         direction TB
         GP["_update_gait_phase()<br/>phase = (step × dt × dec / 0.8) % 1<br/>phase[still_commands] = 0 (freeze when standing)<br/>sin_phase = sin(2π × phase)<br/>ref_pos: hip_pitch(0/6) + knee(3/9) + ankle(4/10)<br/>amplitudes: 0.26/0.52/0.26 rad<br/>deadband: ref=0 when |sin|<0.05"]
-        FC["_update_foot_contact()<br/>contact = foot_z < 0.16m<br/>first_contact = contact & !last_contact<br/>air_time_on_contact = air_time × first_contact<br/>air_time reset on contact"]
+        FC["_update_foot_contact()<br/>Run 31: contact = contact_forces_z > 5N (force-based)<br/>contact_filt = contact OR last_contact (debounce)<br/>first_contact = (air_time > 0) AND contact_filt<br/>air_time_on_contact = air_time × first_contact<br/>air_time reset on contact_filt"]
         CMD["_update_commands()<br/>Every 400 steps: resample vx, vy, yaw_rate<br/>10% zero commands (standing still)"]
         TERM["Termination check<br/>fell = base_z < 0.45m<br/>bad_contact = base on ground<br/>(legs-only URDF: knee/torso have no collision)"]
         GP --> FC --> CMD --> TERM
@@ -353,7 +353,7 @@ sequenceDiagram
 
 | Param | Value | Purpose |
 |-------|-------|---------|
-| `contact_height_threshold` | 0.16m | Foot body z-height below this = "on ground". Was 0.03m (broken) since ankle body origin is at 0.148m |
+| `contact_force_threshold` | 5.0 N | Run 31: Force-based contact detection (EngineAI). Replaces z-height (0.16m) which was unreliable |
 | `foot_body_names` | link_ankle_roll_l/r | Which bodies to check for foot contact |
 
 ### 6. Termination (`armrobotlegging_env_cfg.py`)
