@@ -9,11 +9,11 @@ class PM01WalkingPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 10000
     save_interval = 200
     experiment_name = "pm01_walking"
-    empirical_normalization = True
+    empirical_normalization = False  # Run 22: disable obs normalization to match EngineAI
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,
-        actor_obs_normalization=True,
-        critic_obs_normalization=True,
+        actor_obs_normalization=False,  # Run 22: match EngineAI (was True)
+        critic_obs_normalization=False,  # Run 22: match EngineAI (was True)
         actor_hidden_dims=[512, 256, 128],
         critic_hidden_dims=[768, 256, 128],
         activation="elu",

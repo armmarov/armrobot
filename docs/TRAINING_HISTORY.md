@@ -846,6 +846,37 @@ All reward weights unchanged from Run 20 (EngineAI-matched).
 | lam | 0.9 | 0.9 | 0.9 |
 | obs normalization | ON | ON | OFF |
 
+**Results (KILLED at iter ~565 — STANDING STILL + value loss spikes WORSE):**
+
+| Iter | Reward | Ep Length | Noise | Value Loss | vel_x | feet_air_time |
+|------|--------|-----------|-------|------------|-------|---------------|
+| 100 | 406 | 94 | 0.97 | 302 | ~0 | 0.01 |
+| 200 | 1,716 | 384 | 0.94 | 622 | ~0 | 0.01 |
+| 300 | 2,012 | 430 | 0.92 | 109 | ~0 | 0.01 |
+| 450 | 2,310 | 484 | 0.88 | 49 | ~0 | 0.05 |
+| 500 | 534 | 117 | 0.87 | 2,514 | ~0 | 0.04 |
+| 565 | 2,257 | 464 | 0.86 | 19,972 | 0.03 | 0.00 |
+
+**Failure analysis:**
+- **Value loss spikes WORSE than Run 20**: 107 spikes >1000 out of 563 iters (19%), peaking at 19,971. Run 20 peaked at 17.8K.
+- `num_learning_epochs=2` did NOT fix the problem. Same standing-still pattern.
+- **Root cause is NOT num_learning_epochs** — the remaining difference is observation normalization (RSL-RL: ON, EngineAI: OFF).
+
+---
+
+## Run 22 — Disable Observation Normalization (Match EngineAI)
+
+**Date:** 2026-03-09
+
+**Changes from Run 21:**
+1. **empirical_normalization: True → False** — disable running mean/std obs normalization
+2. **actor_obs_normalization: True → False** — raw observations to actor network
+3. **critic_obs_normalization: True → False** — raw observations to critic network
+
+All other params unchanged (num_learning_epochs=2, EngineAI reward weights).
+
+**Rationale:** Runs 20 and 21 both showed catastrophic value loss spikes (17-20K) with EngineAI reward weights, regardless of epochs (5 or 2). The last remaining PPO config difference vs EngineAI is observation normalization. EngineAI does NOT normalize observations — the networks receive raw values. Our running mean/std normalizer may interact badly with the large reward magnitudes, causing the critic to produce unstable value estimates.
+
 **Goals:**
 - Stable value loss (no spikes >1000)
 - Proper alternating gait with feet_air_time > 1.0
