@@ -99,20 +99,22 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     base_height_target: float = 0.8132  # nominal standing height [m]
 
     # ---------- contact thresholds ----------
-    contact_height_threshold: float = 0.03  # [m] — foot z-height below this = contact
+    # NOTE: link_ankle_roll body origin is ~0.148m above ground when standing flat.
+    # Previous value of 0.03m meant contact was NEVER detected (broken since Run 1).
+    contact_height_threshold: float = 0.16  # [m] — foot z-height below this = contact
 
-    # ---------- reward scales (Run 14: all /5 to fix value loss spikes) ----------
+    # ---------- reward scales (Run 17: balance stepping with survival) ----------
     # velocity tracking
     rew_tracking_lin_vel: float = 0.28       # was 1.4
-    rew_tracking_ang_vel: float = 0.22       # was 1.1
+    rew_tracking_ang_vel: float = 0.5        # was 0.22 — BOOSTED to fix circular walking
     rew_tracking_sigma: float = 2.5
 
     # gait quality
     rew_ref_joint_pos: float = 0.44          # was 2.2
     rew_feet_air_time: float = 0.8           # was 1.5/5=0.3, BOOSTED to 0.8 (force stepping)
     rew_feet_contact_number: float = 0.28    # was 1.4
-    rew_orientation: float = 0.2             # was 1.0
-    rew_base_height: float = 0.2             # was 0.2 — KEEP (already low, important for posture)
+    rew_orientation: float = 0.4             # Run 17: 0.2→0.4 (BOOSTED — prioritize staying upright while stepping)
+    rew_base_height: float = 0.4             # Run 17: 0.2→0.4 (BOOSTED — maintain standing height)
     rew_feet_clearance: float = -0.8         # was -1.6, /2 but still strong (penalise shuffling)
     rew_default_joint_pos: float = 0.16      # was 0.8
     rew_feet_distance: float = 0.04          # was 0.2
@@ -120,17 +122,18 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     # feet distance limits [m]
     min_feet_dist: float = 0.15
     max_feet_dist: float = 0.8
-    target_feet_height: float = 0.15         # was 0.1 — raised to encourage higher steps
+    target_feet_height: float = 0.08         # Run 17: 0.15→0.08 (smaller steps easier to balance)
 
     # penalties
     rew_action_smoothness: float = -0.0006   # was -0.003
     rew_energy: float = -0.00002             # was -0.0001
     rew_vel_mismatch: float = 0.1            # was 0.5
     rew_foot_slip: float = -0.02             # was -0.1
-    rew_alive: float = 0.01                  # was 0.05
-    rew_termination: float = -0.2            # was -1.0
+    rew_alive: float = 0.03                  # Run 17: 0.01→0.03 (BOOSTED — reward survival more)
+    rew_termination: float = -0.5            # Run 17: -0.2→-0.5 (BOOSTED — penalize falling harder)
     rew_track_vel_hard: float = 0.1          # was 0.5
     rew_low_speed: float = 0.3               # was 1.5
     rew_dof_vel: float = -2e-6               # was -1e-5
     rew_dof_acc: float = -1e-9               # was -5e-9
     rew_lat_vel: float = 0.06                # was 0.3
+    rew_swing_phase_ground: float = -0.8      # Run 17: -1.5→-0.8 (reduced — too aggressive caused instant falls)

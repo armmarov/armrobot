@@ -20,7 +20,7 @@ flowchart TB
             B3["8. _apply_action() × 4 (decimation)<br/>target = default_pos + 0.5 × action<br/>→ set_joint_position_target()"]
             B4["9. Physics steps (4 × 0.005s = 0.02s)"]
             B5["10. _get_dones()<br/>Update gait phase + contacts + commands<br/>Check termination"]
-            B6["11. _get_rewards()<br/>Compute 21 reward terms → scalar + per-term log"]
+            B6["11. _get_rewards()<br/>Compute 22 reward terms → scalar + per-term log"]
             B7["12. _reset_idx(fallen_envs)<br/>Reset state + resample commands"]
             B8["13. _get_observations()<br/>Build 64-dim obs tensor"]
             B1 --> B2 --> B3 --> B4 --> B5 --> B6 --> B7 --> B8
@@ -139,14 +139,14 @@ flowchart TB
 
         subgraph POS["Positive rewards (clamped ≥ 0)"]
             R1["tracking_lin_vel = 0.28 × exp(-error²/2.5)<br/>Match commanded vx, vy (Run 14: /5)"]
-            R2["tracking_ang_vel = 0.22 × exp(-error²/2.5)<br/>Match commanded yaw rate (Run 14: /5)"]
+            R2["tracking_ang_vel = 0.5 × exp(-error²/2.5)<br/>Match commanded yaw rate (Run 15: BOOSTED from 0.22)"]
             R3["ref_joint_pos = 0.44 × mean(exp(-2 × diff²))<br/>Per-joint exp then average (Run 14: /5)"]
-            R4["feet_air_time = 0.8 × Σ(air_time - 0.5) × first_contact<br/>Reward proper swing duration (Run 14: BOOSTED)"]
+            R4["feet_air_time = 0.8 × Σ(air_time.clamp(0,0.5)) × first_contact<br/>Biped-style: no subtract (Run 15: formula change)"]
             R5["feet_contact_number = 0.28 × mean(match)<br/>Correct stance/swing per phase (Run 14: /5)"]
-            R6["orientation = 0.2 × exp(-roll_pitch_err × 10)<br/>Stay upright (Run 14: /5)"]
-            R7["base_height = 0.2 × exp(-height_err × 100)<br/>Maintain 0.8132m (KEPT — important for posture)"]
+            R6["orientation = 0.4 × exp(-roll_pitch_err × 10)<br/>Stay upright (Run 14: /5)"]
+            R7["base_height = 0.4 × exp(-height_err × 100)<br/>Maintain 0.8132m (KEPT — important for posture)"]
             R8["vel_mismatch = 0.1 × (low_z_vel + low_xy_angvel)<br/>Minimize parasitic motion (Run 14: /5)"]
-            R9["alive = 0.01<br/>Survival bonus (Run 14: /5)"]
+            R9["alive = 0.03<br/>Survival bonus (Run 14: /5)"]
             R12["default_joint_pos = 0.16 × (exp(-hip_dev×100) - 0.01×norm)<br/>Keep hip pitch/roll near default (Run 14: /5)"]
             R13["feet_distance = 0.04 × exp(-deviation×100)<br/>Keep feet within [0.15m, 0.8m] (Run 14: /5)"]
             R_TVH["track_vel_hard = 0.1 × (exp(-err×10) - 0.2×err)<br/>Sharp velocity tracking (Run 14: /5)"]
@@ -161,10 +161,11 @@ flowchart TB
             R11["energy = -0.00002 × Σ(action² × |vel|)<br/>Efficiency (Run 14: /5)"]
             R14["feet_clearance = -0.8 × norm(swing_target - foot_height)<br/>Force swing foot to lift (Run 14: /2, target 0.15m)"]
             R15["foot_slip = -0.02 × Σ(√foot_speed × contact)<br/>Penalize sliding on ground (Run 14: /5)"]
-            R16["termination = -0.2 × fell<br/>Fall penalty (Run 14: /5)"]
+            R16["termination = -0.5 × fell<br/>Fall penalty (Run 14: /5)"]
             R17["(moved to positive rewards section)"]
             R18["(moved to positive rewards section)"]
             R19["dof_vel = -2e-6 × Σ(joint_vel²)<br/>Penalize joint velocities (Run 14: /5)"]
+            R_SPG["swing_phase_ground = -0.8 × Σ(swing_mask × contact)<br/>Penalize feet on ground during swing phase (Run 17: -1.5→-0.8)"]
             R20["dof_acc = -1e-9 × Σ((Δvel/dt)²)<br/>Penalize joint accelerations (Run 14: /5)"]
             R21["(moved to positive rewards section)"]
         end
@@ -296,7 +297,7 @@ sequenceDiagram
 
     E->>E: _get_dones()<br/>├─ _update_gait_phase()<br/>├─ _update_foot_contact()<br/>├─ _update_commands()<br/>└─ check termination
 
-    E->>E: _get_rewards()<br/>compute 21 reward terms<br/>accumulate per-term episode sums
+    E->>E: _get_rewards()<br/>compute 22 reward terms<br/>accumulate per-term episode sums
 
     E->>E: _reset_idx(fallen_envs)<br/>log per-term rewards to extras["log"]<br/>reset state + new commands
 

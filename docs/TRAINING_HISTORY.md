@@ -519,7 +519,64 @@ All Run 12 reward params retained (sigma=2.5, low_speed=1.5, pushes ±1.0@4s, pe
 
 | Iter | Reward | Episode Length | Noise Std | Value Loss | mean_vel_x | feet_air_time |
 |------|--------|---------------|-----------|------------|------------|---------------|
-| — | — | — | — | — | — | — |
+| 148 | 353 | 363 | 0.74 | 9 | 0.04 | 0.0 |
+| 448 | 978 | 703 | 0.42 | 15-590 | 0.30 | 0.0 |
+| 747 | 1,394 | 747 | 0.28 | 6-1,168 | 0.60 | 0.0 |
+| 1050 | 1,427 | 743 | 0.23 | 0.7-139 | 0.72 | 0.0 |
+| 1353 | 1,516 | 760 | 0.21 | 0.2-11 | 0.61 | 0.0 |
+| 1655 | 1,547 | 759 | 0.18 | 0.3-1.7 | 0.60 | 0.0 |
+| 1958 | 1,735 | 836 | 0.15 | 0.08-948 | 0.52 | 0.0 |
+| 2260 | 1,646 | 794 | 0.13 | 0.09-1,159 | 0.41 | 0.0 |
+| 2563 | 1,611 | 775 | 0.12 | 0.5-1,216 | 0.55 | 0.0 |
+
+**Visual Evaluation (model_4800):**
+- Walks forward much better than Run 13 (survives ~16s vs ~8s)
+- Does NOT walk straight — curves into circular path (weak angular tracking)
+- Still shuffles — no foot lifting (feet_air_time = 0.0 throughout)
+- Value loss stable (no more spikes — reward /5 fix worked)
+
+**Conclusion:** Reward scaling fix worked for stability. Two remaining issues: (1) shuffling gait — `feet_air_time` formula gives zero gradient when feet never lift, (2) circular walking — `rew_tracking_ang_vel=0.22` too weak.
+
+---
+
+## Run 15 — Fix Shuffling + Circular Walking
+
+**Date:** 2026-03-09
+
+**Changes from Run 14:**
+1. **NEW: swing_phase_ground penalty (-0.4)** — continuous penalty when foot is on ground during swing phase. Provides gradient signal even when feet never lift (unlike feet_air_time which requires first_contact).
+2. **Boost rew_tracking_ang_vel: 0.22 → 0.5** — fix circular walking by making yaw tracking more important
+3. **Biped-style air time formula** — `air_time.clamp(0, 0.5) * first_contact` (no subtract 0.5, matching EngineAI biped)
+
+**Critical bug found:** `contact_height_threshold = 0.03m` but `link_ankle_roll` body origin is at ~0.148m above ground when standing. **Contact was NEVER detected since Run 1!** All contact-dependent rewards (`feet_air_time`, `contact_pattern`, `foot_slip`) were getting zero signal. This is why the robot never learned to step — there was literally no reward signal for foot contact events.
+
+**Key insight:** The `(air_time - 0.5) * first_contact` formula gives ZERO reward when feet never lift because `first_contact` is always 0. The new `swing_phase_ground` penalty provides a continuous negative signal whenever the foot is on the ground during its designated swing phase — the only way to reduce this penalty is to lift the foot.
+
+**Config:**
+- All other rewards: same as Run 14
+- contact_height_threshold: 0.03 → 0.16 (CRITICAL FIX — enables all contact-based rewards)
+- rew_tracking_ang_vel: 0.22 → 0.5 (fix circular walking)
+- rew_swing_phase_ground: -0.4 (NEW — penalize feet on ground during swing phase)
+- feet_air_time formula: biped-style clamp(0, 0.5) (no subtract)
+
+**Results (killed at iter ~985/10000):**
+
+| Iter | Reward | Ep Length | Noise | Value Loss | vel_x | feet_air_time | swing_ground |
+|------|--------|-----------|-------|------------|-------|---------------|--------------|
+| 10 | 50 | 59 | 0.98 | 35 | 0.68 | 0.001 | -24 |
+| 40 | 65 | 63 | 0.91 | 2.7 | 0.74 | 0.005 | -24 |
+| 336 | 994 | 755 | 0.56 | 21 | 0.38 | 0.034 | -287 |
+| 633 | 1,138 | 664 | 0.41 | 2.2 | 0.67 | 0.138 | -231 |
+| 926 | 1,176 | 666 | 0.31 | 1.7 | 0.51 | 0.000 | -394 |
+| 985 | 1,283 | 709 | 0.30 | — | — | 0.044 | -305 |
+
+**Visual Evaluation (model_800):**
+- **Walks MUCH straighter** — no more circular path (angular tracking boost worked)
+- **Still shuffles** — no visible foot lifting, slides forward
+- **Good survival** — stays upright for full 43s recording, stable posture
+- **Moves forward** — clear forward displacement
+
+**Conclusion:** Contact detection fix was a critical breakthrough — all contact-based rewards now active. Angular tracking fix solved circular walking. However, `swing_phase_ground = -0.4` penalty is too weak — robot maximizes other rewards (+1200 total) while eating -305 swing penalty. The brief `feet_air_time = 0.138` at iter 633 shows the signal EXISTS but isn't strong enough to reinforce. Need stronger penalty (-1.5 or -2.0) or curriculum approach.
 
 ---
 
@@ -535,3 +592,56 @@ All Run 12 reward params retained (sigma=2.5, low_speed=1.5, pushes ±1.0@4s, pe
 8. **Gait reference must be multi-joint** — driving only one joint is insufficient; need hip + knee + ankle coupled reference like EngineAI
 9. **Domain randomization alone doesn't prevent standing-still** — pushes up to ±1.0 m/s at 4s intervals weren't enough (Runs 11-12)
 10. **Standing-still exploit is a command distribution problem** — zero/small commands let the robot get positive reward by standing. Fix: forward-only commands (min 0.3 m/s), no zero commands, no small command filter
+11. **Reward magnitude matters for critic** — total reward ~3000-4000 caused value loss spikes up to 111K. Scaling all rewards /5 fixed it (Run 14)
+12. **feet_air_time needs gradient signal** — the standard formula gives zero when feet never lift. Need continuous swing-phase ground penalty to break shuffling local optimum
+13. **VERIFY contact detection thresholds** — link_ankle_roll origin is 0.148m above ground, not at floor level. threshold=0.03m meant contact was NEVER detected (broken since Run 1). All contact rewards were zero for 14 runs!
+14. **Balance stepping vs survival** — swing_phase_ground=-1.5 forces stepping but robot falls in 1.8s. Need to reduce penalty and boost survival rewards (orientation, base_height, alive, termination) so robot learns to balance while stepping
+15. **Penalty must outweigh exploit reward** — swing_phase_ground=-0.4 wasn't enough; robot earns +1200 from other rewards while eating -305 swing penalty. Need penalty 3-5x stronger to overcome shuffling local optimum
+
+---
+
+## Run 16 — Stronger Swing Penalty
+
+**Date:** 2026-03-09
+
+**Changes from Run 15:**
+1. **rew_swing_phase_ground: -0.4 → -1.5** — at -0.4 penalty totaled ~-305 vs +1200 positive rewards. At -1.5, penalty ~-1065, roughly matching positive rewards. Only way to earn net positive is to lift feet.
+
+**Config:**
+- All other rewards: same as Run 15
+- rew_swing_phase_ground: -1.5 (was -0.4)
+
+**Results (killed at iter ~1397/10000):**
+
+| Iter | Reward | Ep Length | Noise | vel_x | feet_air_time | swing_ground |
+|------|--------|-----------|-------|-------|---------------|--------------|
+| 3 | -17 | 62 | 0.99 | 0.69 | 0.001 | -87 |
+| 253 | +74 | 77 | 0.39 | 0.75 | 0.378 | -64 |
+| 536 | +79 | 80 | 0.17 | 0.74 | 0.594 | -63 |
+| 820 | +99 | 89 | 0.09 | 0.73 | 0.617 | -63 |
+| 1106 | +99 | 88 | 0.07 | 0.73 | 0.623 | -62 |
+| 1397 | +99 | 88 | 0.06 | 0.71 | 0.579 | -66 |
+
+**Visual Evaluation (model_800):**
+- **Robot IS stepping!** Clear knee lifts visible — first real foot lifting in the project
+- **Falls after 1-2 steps** — can't maintain balance during weight transfer
+- **Steps too aggressively** — knee lift is exaggerated, causing instability
+- Survives ~1.8s (matches ep length 88)
+
+**Conclusion:** Stepping achieved (breakthrough!) but -1.5 penalty forces too aggressive lifting. Robot lifts foot but can't balance on one leg. Need to reduce penalty and boost survival rewards for Run 17.
+
+---
+
+## Run 17 — Balance Stepping with Survival
+
+**Date:** 2026-03-09
+
+**Changes from Run 16:**
+1. **rew_swing_phase_ground: -1.5 → -0.8** — reduce penalty so robot doesn't lift feet too aggressively
+2. **target_feet_height: 0.15 → 0.08** — smaller steps are easier to balance
+3. **rew_orientation: 0.2 → 0.4** — prioritize staying upright while stepping
+4. **rew_base_height: 0.2 → 0.4** — maintain standing height during steps
+5. **rew_alive: 0.01 → 0.03** — reward survival more
+6. **rew_termination: -0.2 → -0.5** — penalize falling harder
+
+**Key insight:** Run 16 proved robot CAN step but falls in 1.8s. The -1.5 penalty forces too aggressive knee lifts, destabilizing the robot. By reducing penalty to -0.8 (still strong enough — Run 15 showed -0.4 was too weak) and boosting survival rewards, the robot should learn to take smaller, balanced steps.

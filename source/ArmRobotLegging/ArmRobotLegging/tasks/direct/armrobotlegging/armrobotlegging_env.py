@@ -64,7 +64,7 @@ class ArmrobotleggingEnv(DirectRLEnv):
             "contact_pattern", "orientation", "base_height", "vel_mismatch",
             "action_smoothness", "energy", "alive", "feet_clearance",
             "default_joint_pos", "feet_distance", "foot_slip", "track_vel_hard",
-            "low_speed", "dof_vel", "dof_acc", "lat_vel", "termination",
+            "low_speed", "dof_vel", "dof_acc", "lat_vel", "swing_phase_ground", "termination",
         ]
         self._episode_reward_sums = {
             name: torch.zeros(self.num_envs, device=self.device)
@@ -481,14 +481,26 @@ def compute_rewards(
     per_joint_reward = torch.exp(-2.0 * ref_diff.pow(2))  # [N, 12]
     rew_ref_pos = cfg.rew_ref_joint_pos * per_joint_reward.mean(dim=1)
 
-    # --- 3. feet air time ---
+    # --- 3. feet air time (biped-style: clamp 0-0.5, no subtract) ---
     # reward when foot lands (first contact) proportional to how long it was in the air
     # air_time_on_contact was captured BEFORE reset, so it has the actual swing duration
     rew_air_time = cfg.rew_feet_air_time * torch.sum(
-        (air_time_on_contact - 0.5) * first_contact.float(), dim=-1
+        air_time_on_contact.clamp(0, 0.5) * first_contact.float(), dim=-1
     )
     # no air time reward when standing still (matching EngineAI)
     rew_air_time *= (torch.norm(commands[:, :2], dim=1) > 0.1)
+
+    # --- 3b. swing phase ground penalty (continuous signal to force foot lifting) ---
+    # When a foot SHOULD be in swing phase but is on the ground, penalize.
+    # This provides gradient even when feet never lift (unlike air_time which needs first_contact).
+    swing_mask_penalty = torch.zeros(num_envs, 2, device=device)
+    swing_mask_penalty[:, 0] = (sin_phase < 0).float()   # left should swing
+    swing_mask_penalty[:, 1] = (sin_phase > 0).float()   # right should swing
+    # penalty = foot is on ground during swing phase
+    swing_ground_violation = swing_mask_penalty * foot_contact.float()  # [N, 2]
+    rew_swing_ground = cfg.rew_swing_phase_ground * torch.sum(swing_ground_violation, dim=-1)
+    # only when commanded to move
+    rew_swing_ground *= (torch.norm(commands[:, :2], dim=1) > 0.1)
 
     # --- 4. feet contact pattern (matching EngineAI: +1.0 match, -0.3 mismatch) ---
     # left foot should be in stance when sin_phase >= 0, swing when < 0
@@ -630,7 +642,7 @@ def compute_rewards(
     total_positive = torch.clamp(total_positive, min=0.0)
 
     total = (total_positive + rew_smooth + rew_energy + rew_foot_slip
-             + rew_clearance + rew_dof_vel + rew_dof_acc)
+             + rew_clearance + rew_dof_vel + rew_dof_acc + rew_swing_ground)
 
     rew_term = cfg.rew_termination * reset_terminated.float()
     total += rew_term
@@ -657,6 +669,7 @@ def compute_rewards(
         "dof_vel": rew_dof_vel,
         "dof_acc": rew_dof_acc,
         "lat_vel": rew_lat_vel,
+        "swing_phase_ground": rew_swing_ground,
         "termination": rew_term,
     }
 
