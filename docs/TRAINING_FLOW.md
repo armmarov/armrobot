@@ -159,7 +159,7 @@ flowchart TB
         subgraph NEG["Penalties (always applied)"]
             R10["action_smoothness = -0.0006 × (term1 + term2 + term3)<br/>term1-3: jerk penalties (Run 14: /5)"]
             R11["energy = -0.00002 × Σ(action² × |vel|)<br/>Efficiency (Run 14: /5)"]
-            R14["feet_clearance = -0.8 × norm(swing_target - foot_height)<br/>Force swing foot to lift (Run 14: /2, target 0.15m)"]
+            R14["feet_clearance = -0.8 × norm(swing_target - foot_height)<br/>Force swing foot to lift (Run 14: /2, target 0.06m)"]
             R15["foot_slip = -0.02 × Σ(√foot_speed × contact)<br/>Penalize sliding on ground (Run 14: /5)"]
             R16["termination = -0.5 × fell<br/>Fall penalty (Run 14: /5)"]
             R17["(moved to positive rewards section)"]
@@ -233,7 +233,7 @@ flowchart TB
 │  │                      │  │    clip = 0.2                  │   │
 │  │  GAIT:               │  │    entropy = 0.001             │   │
 │  │    cycle = 0.8s      │  │    epochs = 5                  │   │
-│  │    scale = 0.26 rad  │  │    mini-batches = 4            │   │
+│  │    scale = 0.17 rad  │  │    mini-batches = 4            │   │
 │  │                      │  │    steps/env = 48              │   │
 │  │  COMMANDS:            │  │    max_iterations = 10000      │   │
 │  │    vx: [0.3, 1] m/s   │  │                                │   │
@@ -337,8 +337,9 @@ sequenceDiagram
 | Param | Value | Purpose |
 |-------|-------|---------|
 | `cycle_time` | 0.8s | Full gait cycle duration (left swing + right swing). Matches EngineAI |
-| `target_joint_pos_scale` | 0.26 rad | Amplitude of sinusoidal gait reference for hip/ankle. Knee gets 2x (0.52 rad) |
-| `target_feet_height` | 0.08m | How high swing foot should lift. Lower = easier to balance |
+| `target_joint_pos_scale` | 0.17 rad | Amplitude of sinusoidal gait reference for hip/ankle. Knee gets 2x (0.34 rad). Run 19: reduced from 0.26 |
+| `target_feet_height` | 0.06m | Target swing foot height. Run 19: reduced from 0.08 |
+| `max_feet_height` | 0.12m | Max allowed swing foot height — penalize above this (Run 19) |
 
 ### 4. Velocity Commands (`armrobotlegging_env_cfg.py`)
 
@@ -411,7 +412,8 @@ sequenceDiagram
 |-------|-------|---------|---------|
 | `rew_action_smoothness` | -0.0006 | `w * (jerk + 2nd_order + mag)` | Prevent jerky/oscillating actions |
 | `rew_energy` | -0.00002 | `w * sum(action² * \|vel\|)` | Penalize energy waste |
-| `rew_feet_clearance` | -0.8 | `w * norm(target_h - actual_h)` | Penalize swing foot not lifting enough |
+| `rew_feet_clearance` | -0.8 | `w * norm(target_h - actual_h)` | Penalize swing foot deviation from target height |
+| `rew_feet_height_max` | -0.6 | `w * sum(clamp(h - max, 0))` | Penalize swing foot lifting above max_feet_height (Run 19) |
 | `rew_foot_slip` | -0.02 | `w * sum(sqrt(speed) * contact)` | Penalize foot sliding while on ground |
 | `rew_termination` | -0.5 | `w * fell` | One-time penalty on episode termination |
 | `rew_swing_phase_ground` | curriculum(-1.5→-0.8) | `w * sum(swing_mask * contact)` | Penalize foot on ground during swing phase |

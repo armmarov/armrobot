@@ -64,7 +64,7 @@ class ArmrobotleggingEnv(DirectRLEnv):
             "contact_pattern", "orientation", "base_height", "vel_mismatch",
             "action_smoothness", "energy", "alive", "feet_clearance",
             "default_joint_pos", "feet_distance", "foot_slip", "track_vel_hard",
-            "low_speed", "dof_vel", "dof_acc", "lat_vel", "swing_phase_ground", "termination",
+            "low_speed", "dof_vel", "dof_acc", "lat_vel", "feet_height_max", "swing_phase_ground", "termination",
         ]
         self._episode_reward_sums = {
             name: torch.zeros(self.num_envs, device=self.device)
@@ -603,7 +603,7 @@ def compute_rewards(
     # --- 10. alive bonus ---
     rew_alive = cfg.rew_alive * torch.ones(num_envs, device=device)
 
-    # --- 11. feet clearance (swing foot height tracking) ---
+    # --- 11. feet clearance (swing foot height tracking — both too-low AND too-high) ---
     # compute swing mask: left swings when sin < 0, right swings when sin > 0
     swing_mask = torch.zeros(num_envs, 2, device=device)
     swing_mask[:, 0] = (sin_phase < 0).float()   # left foot swing
@@ -614,9 +614,14 @@ def compute_rewards(
     swing_curve[:, 1] = torch.clamp(sin_phase, min=0.0)   # right: sin when sin > 0
     # foot heights from ground
     foot_heights = foot_pos_w[:, :, 2]  # [N, 2]
-    # target height = swing_curve * target_feet_height, penalize deviation
-    clearance_error = (swing_curve * cfg.target_feet_height - foot_heights) * swing_mask
+    # target height = swing_curve * target_feet_height, penalize deviation (both directions)
+    target_h = swing_curve * cfg.target_feet_height
+    clearance_error = (target_h - foot_heights) * swing_mask
     rew_clearance = cfg.rew_feet_clearance * torch.norm(clearance_error, dim=1)
+
+    # --- 11b. max foot height penalty (Run 19: penalize lifting too high) ---
+    over_height = torch.clamp(foot_heights - cfg.max_feet_height, min=0.0) * swing_mask
+    rew_feet_height_max = cfg.rew_feet_height_max * torch.sum(over_height, dim=-1)
 
     # --- 12. default joint position (matching EngineAI formula) ---
     # EngineAI penalizes hip_pitch/hip_roll (yaw/roll in their naming: idx 0,1,6,7)
@@ -701,7 +706,7 @@ def compute_rewards(
     total_positive = torch.clamp(total_positive, min=0.0)
 
     total = (total_positive + rew_smooth + rew_energy + rew_foot_slip
-             + rew_clearance + rew_dof_vel + rew_dof_acc + rew_swing_ground)
+             + rew_clearance + rew_feet_height_max + rew_dof_vel + rew_dof_acc + rew_swing_ground)
 
     rew_term = cfg.rew_termination * reset_terminated.float()
     total += rew_term
@@ -728,6 +733,7 @@ def compute_rewards(
         "dof_vel": rew_dof_vel,
         "dof_acc": rew_dof_acc,
         "lat_vel": rew_lat_vel,
+        "feet_height_max": rew_feet_height_max,
         "swing_phase_ground": rew_swing_ground,
         "termination": rew_term,
     }

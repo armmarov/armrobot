@@ -79,7 +79,7 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
 
     # ---------- gait parameters ----------
     cycle_time: float = 0.8               # gait cycle duration [s] (matching EngineAI)
-    target_joint_pos_scale: float = 0.26  # amplitude of reference gait [rad]
+    target_joint_pos_scale: float = 0.17  # Run 19: 0.26→0.17 (reduce exaggerated stepping)
 
     # ---------- velocity command ranges ----------
     cmd_lin_vel_x_range: tuple = (0.3, 1.0)     # [m/s] forward only — eliminates standing-still exploit
@@ -113,7 +113,7 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     swing_penalty_end: float = -0.8             # relaxed at end (allows survival)
     swing_curriculum_steps: int = 144000        # anneal over ~3000 iters (3000 * 48 steps)
 
-    # ---------- reward scales (Run 18: curriculum swing + standing + PD rand) ----------
+    # ---------- reward scales (Run 19: fix exaggerated stepping) ----------
     # velocity tracking
     rew_tracking_lin_vel: float = 0.28       # was 1.4
     rew_tracking_ang_vel: float = 0.5        # was 0.22 — BOOSTED to fix circular walking
@@ -132,7 +132,9 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     # feet distance limits [m]
     min_feet_dist: float = 0.15
     max_feet_dist: float = 0.8
-    target_feet_height: float = 0.08         # Run 17: 0.15→0.08 (smaller steps easier to balance)
+    target_feet_height: float = 0.06         # Run 19: 0.08→0.06 (smaller target, less exaggerated)
+    max_feet_height: float = 0.12            # Run 19: NEW — penalize lifting above this
+    rew_feet_height_max: float = -0.6        # Run 19: NEW — penalty for over-lifting
 
     # penalties
     rew_action_smoothness: float = -0.0006   # was -0.003

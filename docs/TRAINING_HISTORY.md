@@ -597,6 +597,8 @@ All Run 12 reward params retained (sigma=2.5, low_speed=1.5, pushes ±1.0@4s, pe
 13. **VERIFY contact detection thresholds** — link_ankle_roll origin is 0.148m above ground, not at floor level. threshold=0.03m meant contact was NEVER detected (broken since Run 1). All contact rewards were zero for 14 runs!
 14. **Balance stepping vs survival** — swing_phase_ground=-1.5 forces stepping but robot falls in 1.8s. Need to reduce penalty and boost survival rewards (orientation, base_height, alive, termination) so robot learns to balance while stepping
 15. **Penalty must outweigh exploit reward** — swing_phase_ground=-0.4 wasn't enough; robot earns +1200 from other rewards while eating -305 swing penalty. Need penalty 3-5x stronger to overcome shuffling local optimum
+16. **Curriculum solves stepping-vs-survival tradeoff** — static penalty either forces stepping but robot falls (-1.5) or allows survival but robot shuffles (-0.8). Annealing -1.5→-0.8 over 3000 iters teaches stepping first, then gradual adaptation. Run 18 maintained air_time 2-7 post-curriculum while Run 17 collapsed to 0.02
+17. **Penalize over-lifting, not just under-lifting** — feet_clearance only penalized too-low feet. Without a max height cap, robot learned "higher = safer" to avoid swing penalty, causing exaggerated marching gait (Run 18). Need bidirectional clearance + max height penalty
 
 ---
 
@@ -692,3 +694,48 @@ All Run 12 reward params retained (sigma=2.5, low_speed=1.5, pushes ±1.0@4s, pe
 - Episode length > 400 (survive >8s)
 - Walking + standing support
 - Robust to actuator variation
+
+**Results (killed at iter ~4022/10000, converged):**
+
+| Iter | Reward | Ep Length | Noise | vel_x | feet_air_time | swing_ground |
+|------|--------|-----------|-------|-------|---------------|--------------|
+| 28 | 24 | 55 | 0.91 | 0.82 | 0.01 | -65 |
+| 1062 | 953 | 767 | 0.44 | 0.57 | 3.72 | -755 |
+| 2250 | 1550 | 855 | 0.28 | 0.78 | 2.15 | -243 |
+| 3728 | 1649 | 833 | 0.21 | 0.51 | 6.68 | -473 |
+| 4022 | 1532 | 775 | 0.20 | 0.45 | 4.42 | -347 |
+
+**Visual Evaluation (model_4000):**
+- **Robot IS walking with real stepping** — feet clearly lifting off ground (breakthrough!)
+- **Left leg lifts WAY too high** — exaggerated marching, like a soldier
+- **Right leg more natural** — smaller, controlled lifts
+- **Robot leans/tilts** — compensating for aggressive left leg
+- **Some robots fall** — destabilized by exaggerated gait
+- **Clear forward movement** — good displacement, surviving 15-17s
+
+**Conclusion:** Curriculum approach solved stepping-vs-survival tradeoff (Run 17 collapsed, Run 18 maintained). But gait reference amplitude too large (0.26 rad) and no penalty for lifting too high — robot over-learned aggressive stepping. Need to reduce amplitude and add max height penalty.
+
+---
+
+## Run 19 — Fix Exaggerated Stepping
+
+**Date:** 2026-03-09
+
+**Changes from Run 18:**
+1. **Reduce gait reference amplitude**: `target_joint_pos_scale` 0.26 → 0.17 rad (knee: 0.52→0.34). Smaller reference = less exaggerated swings.
+2. **Lower target foot height**: `target_feet_height` 0.08 → 0.06m. Aim for smaller, controlled steps.
+3. **NEW: max foot height penalty** (`rew_feet_height_max = -0.6`): penalize swing foot going above `max_feet_height = 0.12m`. Prevents the over-lifting that caused the marching gait.
+4. All curriculum, PD randomization, and standing support from Run 18 retained.
+
+**Config:**
+- target_joint_pos_scale: 0.26 → 0.17
+- target_feet_height: 0.08 → 0.06
+- max_feet_height: 0.12 (NEW)
+- rew_feet_height_max: -0.6 (NEW)
+- All other params: same as Run 18
+
+**Goals:**
+- Natural stepping gait (no exaggerated marching)
+- Symmetric left/right leg behavior
+- Maintain ep_length > 700 (>14s survival)
+- feet_air_time > 0.3 sustained
