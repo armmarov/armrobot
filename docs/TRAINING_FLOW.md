@@ -138,36 +138,34 @@ flowchart TB
         direction TB
 
         subgraph POS["Positive rewards (clamped ≥ 0)"]
-            R1["tracking_lin_vel = 0.28 × exp(-error²/2.5)<br/>Match commanded vx, vy (Run 14: /5)"]
-            R2["tracking_ang_vel = 0.5 × exp(-error²/2.5)<br/>Match commanded yaw rate (Run 15: BOOSTED from 0.22)"]
-            R3["ref_joint_pos = 0.44 × mean(exp(-2 × diff²))<br/>Per-joint exp then average (Run 14: /5)"]
-            R4["feet_air_time = 0.8 × Σ(air_time.clamp(0,0.5)) × first_contact<br/>Biped-style: no subtract (Run 15: formula change)"]
-            R5["feet_contact_number = 0.28 × mean(match)<br/>Correct stance/swing per phase (Run 14: /5)"]
-            R6["orientation = 0.4 × exp(-roll_pitch_err × 10)<br/>Stay upright (Run 14: /5)"]
-            R7["base_height = 0.4 × exp(-height_err × 100)<br/>Maintain 0.8132m (KEPT — important for posture)"]
-            R8["vel_mismatch = 0.1 × (low_z_vel + low_xy_angvel)<br/>Minimize parasitic motion (Run 14: /5)"]
-            R9["alive = 0.03<br/>Survival bonus (Run 14: /5)"]
-            R12["default_joint_pos = 0.16 × (exp(-hip_dev×100) - 0.01×norm)<br/>Keep hip pitch/roll near default (Run 14: /5)"]
-            R13["feet_distance = 0.04 × exp(-deviation×100)<br/>Keep feet within [0.15m, 0.8m] (Run 14: /5)"]
-            R_TVH["track_vel_hard = 0.1 × (exp(-err×10) - 0.2×err)<br/>Sharp velocity tracking (Run 14: /5)"]
-            R_LS["low_speed = 0.3 × discrete(-1/+2/-2)<br/>Punish too slow, reward good speed (Run 14: /5)"]
-            R_LV["lat_vel = 0.06 × exp(-lat_error²×10)<br/>Lateral velocity tracking (Run 14: /5)"]
+            R1["tracking_lin_vel = 1.4 × exp(-error²/5.0)<br/>Match commanded vx, vy (Run 20: match EngineAI)"]
+            R2["tracking_ang_vel = 1.1 × exp(-error²/5.0)<br/>Match commanded yaw rate (Run 20: match EngineAI)"]
+            R3["ref_joint_pos = 2.2 × mean(exp(-2 × diff²))<br/>Per-joint exp then average (Run 20: match EngineAI)"]
+            R4["feet_air_time = 1.5 × Σ(air_time.clamp(0,0.5)) × first_contact<br/>Biped-style: no subtract (Run 20: match EngineAI)"]
+            R5["feet_contact_number = 1.4 × mean(match)<br/>Correct stance/swing per phase (Run 20: match EngineAI)"]
+            R6["orientation = 1.0 × exp(-roll_pitch_err × 10)<br/>Stay upright (Run 20: match EngineAI)"]
+            R7["base_height = 0.2 × exp(-height_err × 100)<br/>Maintain 0.8132m (Run 20: match EngineAI)"]
+            R8["vel_mismatch = 0.5 × (low_z_vel + low_xy_angvel)<br/>Minimize parasitic motion (Run 20: match EngineAI)"]
+            R9["alive = 0.03<br/>Survival bonus (kept — not in EngineAI)"]
+            R12["default_joint_pos = 0.8 × (exp(-hip_dev×100) - 0.01×norm)<br/>Keep hip pitch/roll near default (Run 20: match EngineAI)"]
+            R13["feet_distance = 0.2 × exp(-deviation×100)<br/>Keep feet within [0.15m, 0.8m] (Run 20: match EngineAI)"]
+            R_TVH["track_vel_hard = 0.5 × (exp(-err×10) - 0.2×err)<br/>Sharp velocity tracking (Run 20: match EngineAI)"]
+            R_LS["low_speed = 0.2 × discrete(-1/+2/-2)<br/>Punish too slow, reward good speed (Run 20: match EngineAI)"]
+            R_LV["lat_vel = 0.06 × exp(-lat_error²×10)<br/>Lateral velocity tracking (kept — not in EngineAI)"]
         end
 
         CLAMP["torch.clamp(sum, min=0.0)"]
 
         subgraph NEG["Penalties (always applied)"]
-            R10["action_smoothness = -0.0006 × (term1 + term2 + term3)<br/>term1-3: jerk penalties (Run 14: /5)"]
-            R11["energy = -0.00002 × Σ(action² × |vel|)<br/>Efficiency (Run 14: /5)"]
-            R14["feet_clearance = -0.8 × norm(swing_target - foot_height)<br/>Force swing foot to lift (Run 14: /2, target 0.06m)"]
-            R15["foot_slip = -0.02 × Σ(√foot_speed × contact)<br/>Penalize sliding on ground (Run 14: /5)"]
-            R16["termination = -0.5 × fell<br/>Fall penalty (Run 14: /5)"]
-            R17["(moved to positive rewards section)"]
-            R18["(moved to positive rewards section)"]
-            R19["dof_vel = -2e-6 × Σ(joint_vel²)<br/>Penalize joint velocities (Run 14: /5)"]
-            R_SPG["swing_phase_ground = curriculum(-1.5→-0.8) × Σ(swing_mask × contact)<br/>Penalize feet on ground during swing phase (Run 17: -1.5→-0.8)"]
-            R20["dof_acc = -1e-9 × Σ((Δvel/dt)²)<br/>Penalize joint accelerations (Run 14: /5)"]
-            R21["(moved to positive rewards section)"]
+            R10["action_smoothness = -0.003 × (term1 + term2 + term3)<br/>term1-3: jerk penalties (Run 20: match EngineAI)"]
+            R11["energy = -0.00002 × Σ(action² × |vel|)<br/>Efficiency (kept — EngineAI uses torques instead)"]
+            R14["feet_clearance = -1.6 × norm(swing_target - foot_height)<br/>Force swing foot to lift (Run 20: match EngineAI, target 0.10m)"]
+            R15["foot_slip = -0.1 × Σ(√foot_speed × contact)<br/>Penalize sliding on ground (Run 20: match EngineAI)"]
+            R16["termination = -0.0 × fell<br/>Fall penalty (Run 20: match EngineAI — disabled)"]
+            R_FHM["feet_height_max = -0.6 × Σ(clamp(h-0.15,0))<br/>Penalize over-lifting above 0.15m (kept — not in EngineAI)"]
+            R19["dof_vel = -1e-5 × Σ(joint_vel²)<br/>Penalize joint velocities (Run 20: match EngineAI)"]
+            R_SPG["swing_phase_ground = curriculum(-1.5→-0.8) × Σ(swing_mask × contact)<br/>Penalize feet on ground during swing phase (kept — not in EngineAI)"]
+            R20["dof_acc = -5e-9 × Σ((Δvel/dt)²)<br/>Penalize joint accelerations (Run 20: match EngineAI)"]
         end
 
         POS --> CLAMP --> NEG
@@ -233,7 +231,7 @@ flowchart TB
 │  │                      │  │    clip = 0.2                  │   │
 │  │  GAIT:               │  │    entropy = 0.001             │   │
 │  │    cycle = 0.8s      │  │    epochs = 5                  │   │
-│  │    scale = 0.17 rad  │  │    mini-batches = 4            │   │
+│  │    scale = 0.26 rad  │  │    mini-batches = 4            │   │
 │  │                      │  │    steps/env = 48              │   │
 │  │  COMMANDS:            │  │    max_iterations = 10000      │   │
 │  │    vx: [0.3, 1] m/s   │  │                                │   │
@@ -242,28 +240,28 @@ flowchart TB
 │  │    resample: 8s       │  ┌────────────────────────────────┐   │
 │  │    still: 10%         │  │  pm01.py (robot config)        │   │
 │  │                      │  │                                │   │
-│  │  REWARDS:             │  │  PD Gains:                     │   │
-│  │    lin_vel: 0.28       │  │    hip_pitch: Kp=70, Kd=7     │   │
-│  │    ang_vel: 0.5       │  │    knee: Kp=70, Kd=7          │   │
-│  │    ref_pos: 0.44       │  │    ankle: Kp=20, Kd=0.2       │   │
-│  │    air_time: 0.8      │  │                                │   │
-│  │    contact: 0.28       │  │  Effort limits:                │   │
-│  │    orient: 0.4        │  │    hip: 164 Nm                 │   │
-│  │    height: 0.4        │  │    knee: 164 Nm                │   │
-│  │    vel_mis: 0.1       │  │    ankle: 52 Nm                │   │
-│  │    alive: 0.03        │  │                                │   │
-│  │    smooth: -0.0006     │  │  Init: 0.9m, knees bent        │   │
-│  │    energy: -2e-5    │  │  URDF: pm01_only_legs_simple_   │   │
+│  │  REWARDS (EngineAI):   │  │  PD Gains:                     │   │
+│  │    lin_vel: 1.4        │  │    hip_pitch: Kp=70, Kd=7     │   │
+│  │    ang_vel: 1.1        │  │    knee: Kp=70, Kd=7          │   │
+│  │    ref_pos: 2.2        │  │    ankle: Kp=20, Kd=0.2       │   │
+│  │    air_time: 1.5       │  │                                │   │
+│  │    contact: 1.4        │  │  Effort limits:                │   │
+│  │    orient: 1.0         │  │    hip: 164 Nm                 │   │
+│  │    height: 0.2         │  │    knee: 164 Nm                │   │
+│  │    vel_mis: 0.5        │  │    ankle: 52 Nm                │   │
+│  │    alive: 0.03         │  │                                │   │
+│  │    smooth: -0.003      │  │  Init: 0.9m, knees bent        │   │
+│  │    energy: -2e-5       │  │  URDF: pm01_only_legs_simple_  │   │
 │  │        collision.urdf           │   │
-│  │    clearance: -0.8    │  │                                │   │
-│  │    default_pos: 0.16   │  │                                │   │
-│  │    feet_dist: 0.04     │  │                                │   │
-│  │    foot_slip: -0.02    │  │                                │   │
-│  │    term: -0.5         │  │                                │   │
-│  │    track_hard: 0.1    │  │                                │   │
-│  │    low_speed: 0.3     │  │                                │   │
-│  │    dof_vel: -2e-6     │  │                                │   │
-│  │    dof_acc: -1e-9     │  │                                │   │
+│  │    clearance: -1.6     │  │                                │   │
+│  │    default_pos: 0.8    │  │                                │   │
+│  │    feet_dist: 0.2      │  │                                │   │
+│  │    foot_slip: -0.1     │  │                                │   │
+│  │    term: -0.0          │  │                                │   │
+│  │    track_hard: 0.5     │  │                                │   │
+│  │    low_speed: 0.2      │  │                                │   │
+│  │    dof_vel: -1e-5      │  │                                │   │
+│  │    dof_acc: -5e-9      │  │                                │   │
 │  │    lat_vel: 0.06       │  └────────────────────────────────┘   │
 │  │                      │                                       │
 │  │  TERMINATION:         │                                       │
@@ -390,35 +388,35 @@ sequenceDiagram
 
 | Param | Value | Formula | Purpose |
 |-------|-------|---------|---------|
-| `rew_tracking_lin_vel` | 0.28 | `w * exp(-error²/sigma)` | Match commanded forward/lateral velocity |
-| `rew_tracking_ang_vel` | 0.5 | `w * exp(-error²/sigma)` | Match commanded yaw rate. Boosted to fix circular walking |
-| `rew_tracking_sigma` | 2.5 | (used in above) | Sharpness of tracking reward. Lower = stricter |
-| `rew_ref_joint_pos` | 0.44 | `w * mean(exp(-2*diff²))` | Follow sinusoidal gait reference. Per-joint exp then average |
-| `rew_feet_air_time` | 0.8 | `w * sum(clamp(air,0,0.5) * first_contact)` | Reward foot landing after being in air |
-| `rew_feet_contact_number` | 0.28 | `w * mean(match)` | Reward correct stance/swing pattern matching gait phase |
-| `rew_orientation` | 0.4 | `w * exp(-roll_pitch_err*10)` | Stay upright (penalize body tilt) |
-| `rew_base_height` | 0.4 | `w * exp(-height_err*100)` | Maintain nominal standing height (0.8132m) |
-| `rew_vel_mismatch` | 0.1 | `w * 0.5*(low_z + low_xy_ang)` | Minimize parasitic vertical/angular motion |
+| `rew_tracking_lin_vel` | 1.4 | `w * exp(-error²/sigma)` | Match commanded forward/lateral velocity (Run 20: EngineAI) |
+| `rew_tracking_ang_vel` | 1.1 | `w * exp(-error²/sigma)` | Match commanded yaw rate (Run 20: EngineAI) |
+| `rew_tracking_sigma` | 5.0 | (used in above) | Sharpness of tracking reward (Run 20: EngineAI — more forgiving) |
+| `rew_ref_joint_pos` | 2.2 | `w * mean(exp(-2*diff²))` | Follow sinusoidal gait reference (Run 20: EngineAI) |
+| `rew_feet_air_time` | 1.5 | `w * sum(clamp(air,0,0.5) * first_contact)` | Reward foot landing after being in air (Run 20: EngineAI) |
+| `rew_feet_contact_number` | 1.4 | `w * mean(match)` | Reward correct stance/swing pattern (Run 20: EngineAI) |
+| `rew_orientation` | 1.0 | `w * exp(-roll_pitch_err*10)` | Stay upright (Run 20: EngineAI) |
+| `rew_base_height` | 0.2 | `w * exp(-height_err*100)` | Maintain nominal standing height (Run 20: EngineAI) |
+| `rew_vel_mismatch` | 0.5 | `w * 0.5*(low_z + low_xy_ang)` | Minimize parasitic motion (Run 20: EngineAI) |
 | `rew_alive` | 0.03 | `w * 1.0` | Constant survival bonus every step |
-| `rew_default_joint_pos` | 0.16 | `w * (exp(-hip_dev*100) - 0.01*norm)` | Keep hip pitch/roll near default pose |
-| `rew_feet_distance` | 0.04 | `w * exp(-deviation*100)` | Keep feet within [0.15m, 0.8m] apart |
-| `rew_track_vel_hard` | 0.1 | `w * (exp(-err*10) - 0.2*err)` | Sharp velocity tracking with linear penalty |
-| `rew_low_speed` | 0.3 | `w * discrete(-1/+2/-2)` | Punish too slow, reward good speed, punish wrong direction |
+| `rew_default_joint_pos` | 0.8 | `w * (exp(-hip_dev*100) - 0.01*norm)` | Keep hip pitch/roll near default (Run 20: EngineAI) |
+| `rew_feet_distance` | 0.2 | `w * exp(-deviation*100)` | Keep feet within [0.15m, 0.8m] apart (Run 20: EngineAI) |
+| `rew_track_vel_hard` | 0.5 | `w * (exp(-err*10) - 0.2*err)` | Sharp velocity tracking (Run 20: EngineAI) |
+| `rew_low_speed` | 0.2 | `w * discrete(-1/+2/-2)` | Punish too slow, reward good speed (Run 20: EngineAI) |
 | `rew_lat_vel` | 0.06 | `w * exp(-lat_err²*10)` | Track lateral velocity command |
 
 ### 10. Rewards — Penalties (discourage bad behavior)
 
 | Param | Value | Formula | Purpose |
 |-------|-------|---------|---------|
-| `rew_action_smoothness` | -0.0006 | `w * (jerk + 2nd_order + mag)` | Prevent jerky/oscillating actions |
+| `rew_action_smoothness` | -0.003 | `w * (jerk + 2nd_order + mag)` | Prevent jerky actions (Run 20: EngineAI) |
 | `rew_energy` | -0.00002 | `w * sum(action² * \|vel\|)` | Penalize energy waste |
-| `rew_feet_clearance` | -0.8 | `w * norm(target_h - actual_h)` | Penalize swing foot deviation from target height |
-| `rew_feet_height_max` | -0.6 | `w * sum(clamp(h - max, 0))` | Penalize swing foot lifting above max_feet_height (Run 19) |
-| `rew_foot_slip` | -0.02 | `w * sum(sqrt(speed) * contact)` | Penalize foot sliding while on ground |
-| `rew_termination` | -0.5 | `w * fell` | One-time penalty on episode termination |
-| `rew_swing_phase_ground` | curriculum(-1.5→-0.8) | `w * sum(swing_mask * contact)` | Penalize foot on ground during swing phase |
-| `rew_dof_vel` | -2e-6 | `w * sum(vel²)` | Penalize joint velocities — discourages vibration |
-| `rew_dof_acc` | -1e-9 | `w * sum(acc²)` | Penalize joint accelerations — anti-vibration |
+| `rew_feet_clearance` | -1.6 | `w * norm(target_h - actual_h)` | Penalize swing foot deviation from target 0.10m (Run 20: EngineAI) |
+| `rew_feet_height_max` | -0.6 | `w * sum(clamp(h - 0.15, 0))` | Penalize swing foot above 0.15m (not in EngineAI) |
+| `rew_foot_slip` | -0.1 | `w * sum(sqrt(speed) * contact)` | Penalize sliding on ground (Run 20: EngineAI) |
+| `rew_termination` | -0.0 | `w * fell` | Disabled (Run 20: EngineAI uses -0.0) |
+| `rew_swing_phase_ground` | curriculum(-1.5→-0.8) | `w * sum(swing_mask * contact)` | Penalize foot on ground during swing (not in EngineAI) |
+| `rew_dof_vel` | -1e-5 | `w * sum(vel²)` | Penalize joint velocities (Run 20: EngineAI) |
+| `rew_dof_acc` | -5e-9 | `w * sum(acc²)` | Penalize joint accelerations (Run 20: EngineAI) |
 | `min_feet_dist` | 0.15m | (in feet_distance) | Minimum allowed distance between feet |
 | `max_feet_dist` | 0.8m | (in feet_distance) | Maximum allowed distance between feet |
 
@@ -428,39 +426,39 @@ All values shown are **per policy step** (before episode accumulation). Terms 1-
 
 | # | Term | Weight | Formula | Rewarded When | Penalized When |
 |---|------|--------|---------|---------------|----------------|
-| 1 | **tracking_lin_vel** | 0.28 | `w × exp(-error²/σ)` | Moving at commanded vx, vy (max 0.28 at error=0) | Moving different speed/direction (→0 as error grows; at 1.58 m/s error: ~0.10) |
-| 2 | **tracking_ang_vel** | 0.5 | `w × exp(-error²/σ)` | Turning at commanded yaw rate (max 0.5) | Turning wrong speed (→0 as error grows) |
-| 3 | **ref_joint_pos** | 0.44 | `w × mean(exp(-2×diff²))` | All 12 joints match gait reference (max 0.44 at diff=0) | Joints far from ref (>0.6 rad off ≈ 0 per joint) |
-| 4 | **feet_air_time** | 0.8 | `w × Σ(clamp(air,0,0.5) × first_contact)` | Foot lands after being in air up to 0.5s (max 0.8 for both feet) | Feet never lift off → gets 0. Disabled when standing still (cmd < 0.1) |
-| 5 | **contact_pattern** | 0.28 | `w × mean(match=+1, miss=-0.3)` | Left on ground when sin≥0, right when sin<0 (max 0.28) | Wrong phase: both wrong → -0.084 |
-| 6 | **orientation** | 0.4 | `w × exp(-roll_pitch_err×10)` | Body upright, roll=0, pitch=0 (max 0.4) | Tilted (15° → half lost; 30° → nearly gone) |
-| 7 | **base_height** | 0.4 | `w × exp(-\|h-target\|×100)` | Base at 0.8132m exactly (max 0.4) | ±0.023m off → 90% lost. Very sharp |
-| 8 | **vel_mismatch** | 0.1 | `w × 0.5(exp_z + exp_xy)` | No vertical bouncing or sideways rocking (max 0.1) | Bouncing up/down or rocking side to side (→0) |
+| 1 | **tracking_lin_vel** | 1.4 | `w × exp(-error²/σ)` | Moving at commanded vx, vy (max 1.4 at error=0) | Moving different speed/direction (→0 as error grows) |
+| 2 | **tracking_ang_vel** | 1.1 | `w × exp(-error²/σ)` | Turning at commanded yaw rate (max 1.1) | Turning wrong speed (→0 as error grows) |
+| 3 | **ref_joint_pos** | 2.2 | `w × mean(exp(-2×diff²))` | All 12 joints match gait reference (max 2.2 at diff=0) | Joints far from ref (>0.6 rad off ≈ 0 per joint) |
+| 4 | **feet_air_time** | 1.5 | `w × Σ(clamp(air,0,0.5) × first_contact)` | Foot lands after being in air up to 0.5s (max 1.5 for both feet) | Feet never lift off → gets 0. Disabled when standing still (cmd < 0.1) |
+| 5 | **contact_pattern** | 1.4 | `w × mean(match=+1, miss=-0.3)` | Left on ground when sin≥0, right when sin<0 (max 1.4) | Wrong phase: both wrong → -0.42 |
+| 6 | **orientation** | 1.0 | `w × exp(-roll_pitch_err×10)` | Body upright, roll=0, pitch=0 (max 1.0) | Tilted (15° → half lost; 30° → nearly gone) |
+| 7 | **base_height** | 0.2 | `w × exp(-\|h-target\|×100)` | Base at 0.8132m exactly (max 0.2) | ±0.023m off → 90% lost. Very sharp |
+| 8 | **vel_mismatch** | 0.5 | `w × 0.5(exp_z + exp_xy)` | No vertical bouncing or sideways rocking (max 0.5) | Bouncing up/down or rocking side to side (→0) |
 | 9 | **alive** | 0.03 | `w × 1.0` | Always — constant +0.03 every step | Never penalized |
-| 10 | **default_joint_pos** | 0.16 | `w × (exp(-hip×100) - 0.01×norm)` | Hip pitch/roll near default pose (max ~0.16) | Hip dev > 0.05 rad: exp≈0. Can go negative from linear norm |
-| 11 | **feet_distance** | 0.04 | `w × 0.5(exp_min + exp_max)` | Feet 0.15–0.8m apart (max 0.04) | Feet too close (<0.15m) or too far (>0.8m) → 0 |
-| 12 | **track_vel_hard** | 0.1 | `w × (exp(-err×10) - 0.2×err)` | Velocity error near 0 (max ~0.1) | Error > ~0.6 m/s: goes negative |
-| 13 | **low_speed** | 0.3 | `w × discrete(-1/+2/-2)` | Speed 50-120% of command → +0.6 | <50% → -0.3; opposite direction → -0.6 (worst) |
+| 10 | **default_joint_pos** | 0.8 | `w × (exp(-hip×100) - 0.01×norm)` | Hip pitch/roll near default pose (max ~0.8) | Hip dev > 0.05 rad: exp≈0. Can go negative from linear norm |
+| 11 | **feet_distance** | 0.2 | `w × 0.5(exp_min + exp_max)` | Feet 0.15–0.8m apart (max 0.2) | Feet too close (<0.15m) or too far (>0.8m) → 0 |
+| 12 | **track_vel_hard** | 0.5 | `w × (exp(-err×10) - 0.2×err)` | Velocity error near 0 (max ~0.5) | Error > ~0.6 m/s: goes negative |
+| 13 | **low_speed** | 0.2 | `w × discrete(-1/+2/-2)` | Speed 50-120% of command → +0.4 | <50% → -0.2; opposite direction → -0.4 (worst) |
 | 14 | **lat_vel** | 0.06 | `w × exp(-lat_err²×10)` | Lateral vel matches command (max 0.06) | Lat error grows → 0 |
-| 15 | **action_smoothness** | -0.0006 | `w × (jerk + 2nd_order + 0.05×mag)` | Smooth actions (→0 penalty) | Jerky/oscillating actions (unbounded penalty) |
+| 15 | **action_smoothness** | -0.003 | `w × (jerk + 2nd_order + 0.05×mag)` | Smooth actions (→0 penalty) | Jerky/oscillating actions (unbounded penalty) |
 | 16 | **energy** | -2e-5 | `w × Σ(action²×\|vel\|)` | Low torques or low velocity (→0) | High torques × high velocities (unbounded) |
-| 17 | **feet_clearance** | -0.8 | `w × ‖target_h - actual_h‖` | Swing foot at target (swing_curve × 0.06m) → 0 | Too low (shuffling) OR too high. Both directions penalized |
-| 18 | **feet_height_max** | -0.6 | `w × Σ(clamp(h-0.12, min=0))` | Swing foot ≤ 0.12m → 0 penalty | >0.12m: at 0.15m → -0.018/foot; at 0.20m → -0.048/foot |
-| 19 | **foot_slip** | -0.02 | `w × Σ(√speed × contact)` | Feet stationary on ground → 0 | Feet sliding while in contact (unbounded) |
-| 20 | **termination** | -0.5 | `w × fell` | Robot didn't fall → 0 | Fell (base < 0.45m or body contact) → one-time -0.5 |
+| 17 | **feet_clearance** | -1.6 | `w × ‖target_h - actual_h‖` | Swing foot at target (swing_curve × 0.10m) → 0 | Too low (shuffling) OR too high. Both directions penalized |
+| 18 | **feet_height_max** | -0.6 | `w × Σ(clamp(h-0.15, min=0))` | Swing foot ≤ 0.15m → 0 penalty | >0.15m: at 0.18m → -0.018/foot; at 0.25m → -0.06/foot |
+| 19 | **foot_slip** | -0.1 | `w × Σ(√speed × contact)` | Feet stationary on ground → 0 | Feet sliding while in contact (unbounded) |
+| 20 | **termination** | -0.0 | `w × fell` | Disabled (EngineAI uses -0.0) | — |
 | 21 | **swing_phase_ground** | curriculum(-1.5→-0.8) | `w × Σ(swing_mask × contact)` | Swing foot in air during swing phase → 0 | Foot on ground during swing. Both feet: up to -3.0/step (early) |
-| 22 | **dof_vel** | -2e-6 | `w × Σ(vel²)` | Low joint velocities → 0 | High velocities/vibration (typical: -0.02 to -0.07) |
-| 23 | **dof_acc** | -1e-9 | `w × Σ(acc²)` | Constant velocities → 0 | Rapid velocity changes (typical: -0.05 to -0.2) |
+| 22 | **dof_vel** | -1e-5 | `w × Σ(vel²)` | Low joint velocities → 0 | High velocities/vibration |
+| 23 | **dof_acc** | -5e-9 | `w × Σ(acc²)` | Constant velocities → 0 | Rapid velocity changes |
 
 #### Sweet Spot Summary — What "Good Walking" Looks Like
 
 ```
 Foot height during swing:
   0.00m ─── shuffling (clearance penalty, swing_ground penalty)
-  0.03m ─── half target (small clearance penalty)
-  0.06m ─── ★ TARGET (zero clearance penalty, max reward zone)
-  0.09m ─── above target (clearance penalty kicks in)
-  0.12m ─── CEILING (feet_height_max penalty starts)
+  0.05m ─── half target (small clearance penalty)
+  0.10m ─── ★ TARGET (zero clearance penalty, max reward zone)
+  0.12m ─── above target (clearance penalty kicks in)
+  0.15m ─── CEILING (feet_height_max penalty starts)
   0.20m ─── way too high (both clearance AND height_max penalty)
 
 Base height:

@@ -739,3 +739,76 @@ All Run 12 reward params retained (sigma=2.5, low_speed=1.5, pushes ±1.0@4s, pe
 - Symmetric left/right leg behavior
 - Maintain ep_length > 700 (>14s survival)
 - feet_air_time > 0.3 sustained
+
+**Results:**
+- **KILLED at iter 1919** — shuffled from iter ~1200 onward (feet_air_time collapsed to 0)
+- Reduced gait amplitude (0.17) made stepping too hard to learn
+- Robot found it easier to shuffle and get high reward from tracking/orientation/survival
+
+| Iter | Reward | Ep Length | Noise | vel_x | feet_air_time | swing_ground |
+|------|--------|-----------|-------|-------|---------------|--------------|
+| 208 | 58 | 68 | 0.68 | 0.83 | 0.23 | -68 |
+| 486 | 103 | 87 | 0.58 | 0.83 | 0.25 | -64 |
+| 764 | 275 | 265 | 0.56 | 0.71 | 0.31 | -272 |
+| 1051 | 932 | 728 | 0.46 | 0.85 | 0.17 | -311 |
+| 1339 | 1008 | 709 | 0.36 | 0.50 | 0.03 | -916 |
+| 1630 | 1178 | 767 | 0.30 | 0.66 | 0.00 | -744 |
+| 1919 | 1206 | 737 | 0.26 | 0.47 | 0.01 | -745 |
+
+**Visual Evaluation (model_800 — best stepping window):**
+- Left leg lifts too high for walking, right leg seems OK
+- Imbalanced — robot leans and eventually falls
+- Not converged at model_800 (noise 0.56) — the stepping was just noisy exploration
+
+**Conclusion:** Reducing gait amplitude from 0.26→0.17 was too aggressive — robot couldn't learn stepping with such small targets. The /5 reward scaling from Run 14 also left gait enforcement too weak (contact_number=0.28 vs EngineAI's 1.4).
+
+---
+
+## Run 20 — Match EngineAI Reward Weights
+
+**Date:** 2026-03-09
+
+**Root Cause Analysis:** Run 14's /5 reward scaling fixed value loss spikes but crippled gait enforcement. Our reward weights were 2-5x weaker than EngineAI across all gait-critical terms — especially `feet_contact_number` (0.28 vs 1.4), `ref_joint_pos` (0.44 vs 2.2), and `feet_clearance` (-0.8 vs -1.6). This allowed the robot to exploit shuffling, asymmetric stepping, and standing.
+
+**Changes from Run 19 — restore EngineAI reward weights:**
+
+| Param | Run 19 | Run 20 | EngineAI |
+|-------|--------|--------|----------|
+| target_joint_pos_scale | 0.17 | **0.26** | 0.26 |
+| target_feet_height | 0.06 | **0.10** | 0.10 |
+| rew_tracking_lin_vel | 0.28 | **1.4** | 1.4 |
+| rew_tracking_ang_vel | 0.5 | **1.1** | 1.1 |
+| rew_tracking_sigma | 2.5 | **5.0** | 5.0 |
+| rew_ref_joint_pos | 0.44 | **2.2** | 2.2 |
+| rew_feet_air_time | 0.8 | **1.5** | 1.5 |
+| rew_feet_contact_number | 0.28 | **1.4** | 1.4 |
+| rew_orientation | 0.4 | **1.0** | 1.0 |
+| rew_base_height | 0.4 | **0.2** | 0.2 |
+| rew_feet_clearance | -0.8 | **-1.6** | -1.6 |
+| rew_default_joint_pos | 0.16 | **0.8** | 0.8 |
+| rew_feet_distance | 0.04 | **0.2** | 0.2 |
+| rew_action_smoothness | -0.0006 | **-0.003** | -0.003 |
+| rew_vel_mismatch | 0.1 | **0.5** | 0.5 |
+| rew_foot_slip | -0.02 | **-0.1** | -0.1 |
+| rew_termination | -0.5 | **-0.0** | -0.0 |
+| rew_track_vel_hard | 0.1 | **0.5** | 0.5 |
+| rew_low_speed | 0.3 | **0.2** | 0.2 |
+| rew_dof_vel | -2e-6 | **-1e-5** | -1e-5 |
+| rew_dof_acc | -1e-9 | **-5e-9** | -5e-9 |
+
+**Kept from our additions (not in EngineAI):**
+- max_feet_height: 0.12→0.15m (raised ceiling)
+- rew_feet_height_max: -0.6 (prevent over-lifting)
+- Curriculum swing penalty (-1.5→-0.8)
+- PD gains randomization ±20%
+- Push forces
+- rew_alive: 0.03
+- rew_lat_vel: 0.06
+
+**Risk:** Value loss spikes may return (this was why Run 14 divided by 5). If so, may need to increase num_learning_epochs or adjust learning rate.
+
+**Goals:**
+- Proper alternating gait (both legs stepping equally)
+- feet_air_time > 1.0 sustained
+- ep_length > 500
+- No shuffling exploit
