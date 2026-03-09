@@ -190,19 +190,30 @@ return 2.2 * exp(-2.0 * ref_diff_sq)
 
 ### Feet Air Time
 
-**EngineAI (both):**
+**EngineAI QUADRUPED (general):**
 ```python
-rew = sum((air_time.clamp(0, 0.5) - 0.5) * first_contact)
-rew *= (norm(cmd[:2]) > 0.1)   # ZERO reward when standing still
+rew = sum((air_time - 0.5) * first_contact)   # penalizes < 0.5s
+rew *= (norm(cmd[:2]) > 0.1)                   # zero-command gate
 ```
 
-**Ours:**
+**EngineAI BIPED (PM01) — rewards_biped.py:**
 ```python
-rew = 1.5 * sum((air_time_on_contact - 0.5) * first_contact)
-# No zero-command gating, no air_time clamp
+rew = sum(air_time.clamp(0, 0.5) * first_contact)  # always positive, capped at 0.5s
+# NO zero-command gate, NO subtract threshold
 ```
 
-**Differences:** EngineAI clamps air_time to 0.5 max and gates by command magnitude.
+**Ours (Run 32, matches biped):**
+```python
+rew = 1.5 * sum(air_time_on_contact.clamp(0, 0.5) * first_contact)
+# No velocity gate (matching biped)
+```
+
+**Key insight:** Biped formula is COMPLETELY different from quadruped. Biped rewards ANY step
+proportionally (always positive), quadruped penalizes short steps. We were using quadruped
+formula (Runs 27-31) which made stepping undiscoverable through exploration.
+
+Also: biped includes `stance_mask` in `contact_filt` so air time only accumulates during swing phase.
+`contact_filt = contact OR last_contacts OR stance_mask` (biped_robot.py:116-125).
 
 ### Feet Contact Pattern
 
@@ -618,6 +629,21 @@ PD gains match exactly.
   - Now using IsaacLab `ContactSensor` with `track_air_time=True`
 - [x] **27. PPO num_learning_epochs: 5 → 2** (Run 31, match EngineAI)
   - 5 epochs caused value loss spikes (2.5K-20K) across Runs 29-30
+
+### Run 32 Biped-Specific Fixes
+
+- [x] **28. Air-time formula: quadruped → biped** (Run 32)
+  - Quadruped: `(air_time - 0.5) * first_contact` — penalizes steps < 0.5s
+  - Biped (PM01): `clamp(air_time, 0, 0.5) * first_contact` — always positive, capped
+  - Source: `engineai_gym/envs/robots/biped/rewards_biped.py:25-28`
+  - Runs 27-31 used quadruped formula — made stepping undiscoverable
+- [x] **29. contact_filt: add stance_mask** (Run 32, biped-specific)
+  - Biped: `contact_filt = contact OR last_contacts OR stance_mask`
+  - Ensures air_time only accumulates during swing phase
+  - Source: `engineai_gym/envs/robots/biped/biped_robot.py:116-125`
+- [x] **30. Remove velocity gate on air-time** (Run 32, biped-specific)
+  - Quadruped gates by `vel_cmd > 0.1`, biped does not
+  - Source: `rewards_biped.py` has no gate
 
 ### Future (sim-to-real transfer)
 

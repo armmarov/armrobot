@@ -409,9 +409,13 @@ class ArmrobotleggingEnv(DirectRLEnv):
         """Track foot air time and accumulated swing height for gait rewards."""
         contact = self._compute_foot_contact()
 
-        # EngineAI-style contact filtering: debounce with last_contacts
-        # contact_filt = contact OR last_contacts (tolerates 1-step noise)
-        contact_filt = contact | self.last_foot_contact
+        # EngineAI biped contact filtering: contact OR last_contacts OR stance_mask
+        # stance_mask ensures feet register as "in contact" during expected stance phase
+        # even before force threshold is reached — critical for gait phase coordination
+        stance_mask = torch.zeros(self.num_envs, 2, dtype=torch.bool, device=self.device)
+        stance_mask[:, 0] = self.sin_phase >= 0  # left stance when sin >= 0
+        stance_mask[:, 1] = self.sin_phase < 0   # right stance when sin < 0
+        contact_filt = contact | self.last_foot_contact | stance_mask
 
         # detect first-contact events: foot was in air AND now filtered-contact
         self.first_contact = (self.foot_air_time > 0.0) & contact_filt
@@ -585,14 +589,15 @@ def compute_rewards(
     diff_norm = torch.norm(ref_diff, dim=1)
     rew_ref_pos = cfg.rew_ref_joint_pos * (torch.exp(-2.0 * diff_norm) - 0.2 * diff_norm.clamp(0, 0.5))
 
-    # --- 3. feet air time (EngineAI-style: subtract threshold to penalize short steps) ---
-    # air_time - 0.5 means: steps < 0.5s get NEGATIVE reward (penalizes shuffling)
-    # Only fires on first_contact (landing event)
+    # --- 3. feet air time (EngineAI BIPED formula: clamp, always positive) ---
+    # Biped uses clamp(air_time, 0, 0.5) — rewards ANY step, capped at 0.5s
+    # Unlike the quadruped formula (air_time - 0.5) which penalizes steps < 0.5s,
+    # the biped formula gives positive reward proportional to air time, making it
+    # discoverable through exploration. Only fires on first_contact (landing event).
     rew_air_time = cfg.rew_feet_air_time * torch.sum(
-        (air_time_on_contact - 0.5) * first_contact.float(), dim=-1
+        air_time_on_contact.clamp(0, 0.5) * first_contact.float(), dim=-1
     )
-    # no air time reward when standing still (matching EngineAI)
-    rew_air_time *= (torch.norm(commands[:, :2], dim=1) > 0.1)
+    # Note: EngineAI biped does NOT gate by velocity (quadruped does). No gate here.
 
     # --- 3b. swing phase ground penalty (continuous signal to force foot lifting) ---
     # When a foot SHOULD be in swing phase but is on the ground, penalize.

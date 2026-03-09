@@ -1267,8 +1267,67 @@ Also: EngineAI uses num_learning_epochs=2, not 5.
 
 All other settings unchanged from Run 30 (/2.5 weights, exp-of-norm, no alive, contact_filt).
 
+**Results (killed at iter 844/10000):**
+
+| Iter | Reward | Ep Length | Noise | Value Loss | vel_x | feet_air_time |
+|------|--------|-----------|-------|------------|-------|---------------|
+| 10 | ~200 | ~100 | 0.98 | 5 | 0.60 | -0.5 |
+| 200 | ~550 | ~300 | 0.78 | 10-60 | 0.05 | -1.5 |
+| 460 | ~700 | ~380 | 0.67 | 20-100 | 0.01 | -1.9 |
+| 675 | ~835 | ~430 | 0.53 | 7-20 | 0.10 | -3.3 |
+| 844 | ~900 | ~468 | 0.42 | 188 | 0.03 | -7.3 |
+
+**Analysis:**
+- ✅ Force-based contact WORKS — feet_air_time -1 to -7 (vs 0 in all prior runs)
+- ❌ vel_x near zero — robot converged on standing still
+- ❌ feet_air_time increasingly NEGATIVE — robot doing more short steps, never discovers long ones
+- ⚠️ Value loss spikes still present: 3K-4.7K every ~5 iters despite epochs=2
+
+**Root cause discovered:**
+We used the QUADRUPED air-time formula `(air_time - 0.5) * first_contact` which PENALIZES
+steps < 0.5s. EngineAI's BIPED code (`rewards_biped.py`) uses `clamp(air_time, 0, 0.5) * first_contact`
+— always POSITIVE, rewards ANY step proportionally (capped at 0.5s). The robot couldn't
+discover stepping because every step got negative reward.
+
+Also: EngineAI biped includes `stance_mask` in `contact_filt` (we didn't):
+`contact_filt = contact OR last_contacts OR stance_mask`
+This ensures air_time only accumulates during swing phase.
+
+Also: EngineAI biped does NOT gate air-time reward by velocity (we had `vel_cmd > 0.1` gate).
+
+---
+
+## Run 32 — Biped air-time formula + stance_mask contact filtering
+
+**Date:** 2026-03-10
+
+**Changes from Run 31 (3 fixes from EngineAI BIPED code, not quadruped):**
+
+1. **Air-time formula: quadruped → biped**
+   - Old: `(air_time - 0.5) * first_contact` — penalizes steps < 0.5s (UNDISCOVERABLE)
+   - New: `clamp(air_time, 0, 0.5) * first_contact` — rewards ANY step, capped at 0.5s
+   - Source: `engineai_gym/envs/robots/biped/rewards_biped.py:25-28`
+
+2. **contact_filt: add stance_mask (EngineAI biped-specific)**
+   - Old: `contact OR last_contacts`
+   - New: `contact OR last_contacts OR stance_mask`
+   - stance_mask = feet considered "in contact" during expected stance phase
+   - Air time only accumulates during swing phase
+   - Source: `engineai_gym/envs/robots/biped/biped_robot.py:116-125`
+
+3. **Remove velocity gate on air-time reward**
+   - Old: `rew_air_time *= (vel_cmd > 0.1)` — no reward when standing
+   - New: no gate (matching EngineAI biped)
+   - Source: `engineai_gym/envs/robots/biped/rewards_biped.py` (no gate present)
+
+All other settings unchanged from Run 31 (force-based contact, epochs=2, /2.5 weights).
+
+**Why this should work:**
+- Run 15 used clamp formula but had BROKEN z-height contact → no signal
+- Run 31 has WORKING force-based contact but WRONG quadruped formula → negative signal
+- Run 32 combines WORKING contact + CORRECT biped formula → should get POSITIVE signal
+
 **Goals:**
-- feet_air_time MUST become positive (this is the make-or-break metric)
+- feet_air_time MUST become POSITIVE (now discoverable through exploration)
 - vel_x > 0.3
-- Value loss < 200 (epochs=2 should eliminate spikes)
-- This run tests whether contact detection was the root cause of shuffling
+- Value loss stable

@@ -96,7 +96,7 @@ flowchart TB
     subgraph DONES["_get_dones() — runs BEFORE rewards"]
         direction TB
         GP["_update_gait_phase()<br/>phase = (step × dt × dec / 0.8) % 1<br/>phase[still_commands] = 0 (freeze when standing)<br/>sin_phase = sin(2π × phase)<br/>ref_pos: hip_pitch(0/6) + knee(3/9) + ankle(4/10)<br/>amplitudes: 0.26/0.52/0.26 rad<br/>deadband: ref=0 when |sin|<0.05"]
-        FC["_update_foot_contact()<br/>Run 31: contact = contact_forces_z > 5N (force-based)<br/>contact_filt = contact OR last_contact (debounce)<br/>first_contact = (air_time > 0) AND contact_filt<br/>air_time_on_contact = air_time × first_contact<br/>air_time reset on contact_filt"]
+        FC["_update_foot_contact()<br/>Run 31: contact = contact_forces_z > 5N (force-based)<br/>Run 32: contact_filt = contact OR last_contact OR stance_mask (biped)<br/>stance_mask: left stance sin≥0, right stance sin&lt;0<br/>first_contact = (air_time > 0) AND contact_filt<br/>air_time only accumulates during swing phase"]
         CMD["_update_commands()<br/>Every 400 steps: resample vx, vy, yaw_rate<br/>10% zero commands (standing still)"]
         TERM["Termination check<br/>fell = base_z < 0.45m<br/>bad_contact = base on ground<br/>(legs-only URDF: knee/torso have no collision)"]
         GP --> FC --> CMD --> TERM
@@ -141,7 +141,7 @@ flowchart TB
             R1["tracking_lin_vel = 1.4 × exp(-error²/5.0)<br/>Match commanded vx, vy (Run 20: match EngineAI)"]
             R2["tracking_ang_vel = 1.1 × exp(-error²/5.0)<br/>Match commanded yaw rate (Run 20: match EngineAI)"]
             R3["ref_joint_pos = 2.2 × (exp(-2×‖diff‖) - 0.2×clamp(‖diff‖,0,0.5))<br/>Run 29: EngineAI exp-of-norm (less free reward than mean-of-exp)"]
-            R4["feet_air_time = 1.5 × Σ((air_time - 0.5) × first_contact)<br/>Run 27: EngineAI subtract-threshold (penalizes steps &lt; 0.5s)"]
+            R4["feet_air_time = 1.5 × Σ(clamp(air_time, 0, 0.5) × first_contact)<br/>Run 32: EngineAI BIPED formula (always positive, capped at 0.5s)"]
             R5["feet_contact_number = 1.4 × mean(match)<br/>Correct stance/swing per phase (Run 20: match EngineAI)"]
             R6["orientation = 1.0 × exp(-roll_pitch_err × 10)<br/>Stay upright (Run 20: match EngineAI)"]
             R7["base_height = 0.2 × exp(-height_err × 100)<br/>Maintain 0.8132m (Run 20: match EngineAI)"]
@@ -392,7 +392,7 @@ sequenceDiagram
 | `rew_tracking_ang_vel` | 1.1 | `w * exp(-error²/sigma)` | Match commanded yaw rate (Run 20: EngineAI) |
 | `rew_tracking_sigma` | 5.0 | (used in above) | Sharpness of tracking reward (Run 20: EngineAI — more forgiving) |
 | `rew_ref_joint_pos` | 2.2 | `w * (exp(-2*‖diff‖) - 0.2*clamp(‖diff‖,0,0.5))` | Run 29: EngineAI exp-of-norm (less free reward) |
-| `rew_feet_air_time` | 1.5 | `w * sum((air_time - 0.5) * first_contact)` | Penalizes steps < 0.5s, rewards longer steps (Run 27: EngineAI) |
+| `rew_feet_air_time` | 1.5 | `w * sum(clamp(air_time, 0, 0.5) * first_contact)` | Run 32: EngineAI BIPED formula — rewards ANY step, capped at 0.5s (always positive) |
 | `rew_feet_contact_number` | 1.4 | `w * mean(match)` | Reward correct stance/swing pattern (Run 20: EngineAI) |
 | `rew_orientation` | 1.0 | `w * exp(-roll_pitch_err*10)` | Stay upright (Run 20: EngineAI) |
 | `rew_base_height` | 0.2 | `w * exp(-height_err*100)` | Maintain nominal standing height (Run 20: EngineAI) |
@@ -429,7 +429,7 @@ All values shown are **per policy step** (before episode accumulation). Terms 1-
 | 1 | **tracking_lin_vel** | 1.4 | `w × exp(-error²/σ)` | Moving at commanded vx, vy (max 1.4 at error=0) | Moving different speed/direction (→0 as error grows) |
 | 2 | **tracking_ang_vel** | 1.1 | `w × exp(-error²/σ)` | Turning at commanded yaw rate (max 1.1) | Turning wrong speed (→0 as error grows) |
 | 3 | **ref_joint_pos** | 2.2 | `w × (exp(-2×‖diff‖) - 0.2×clamp(‖diff‖,0,0.5))` | All 12 joints match gait reference (max ~2.0 at diff=0). Run 29: exp-of-norm gives ~0.3 free (vs 0.9 from old mean-of-exp) | Joints far from ref: norm>2 → exp≈0, penalty -0.2×0.5=-0.1 |
-| 4 | **feet_air_time** | 1.5 | `w × Σ((air_time-0.5) × first_contact)` | Steps ≥ 0.5s → positive reward. Steps < 0.5s → NEGATIVE (penalizes shuffling). Run 27: EngineAI formula | Shuffling (0.1s steps) → -0.6/step. Good steps (0.5s) → 0. Long steps (0.8s) → +0.45 |
+| 4 | **feet_air_time** | 1.5 | `w × Σ(clamp(air_time,0,0.5) × first_contact)` | Run 32: EngineAI BIPED formula. ANY step → positive reward (capped at 0.5s). Air time only accumulates during swing phase (stance_mask in contact_filt) | Short step (0.1s) → +0.15. Good step (0.5s+) → +0.75 (capped) |
 | 5 | **contact_pattern** | 1.4 | `w × mean(match=+1, miss=-0.3)` | Left on ground when sin≥0, right when sin<0 (max 1.4) | Wrong phase: both wrong → -0.42 |
 | 6 | **orientation** | 1.0 | `w × exp(-roll_pitch_err×10)` | Body upright, roll=0, pitch=0 (max 1.0) | Tilted (15° → half lost; 30° → nearly gone) |
 | 7 | **base_height** | 0.2 | `w × exp(-\|h-target\|×100)` | Base at 0.8132m exactly (max 0.2) | ±0.023m off → 90% lost. Very sharp |
