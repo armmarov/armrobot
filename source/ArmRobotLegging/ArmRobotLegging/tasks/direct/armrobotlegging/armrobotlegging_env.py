@@ -192,12 +192,15 @@ class ArmrobotleggingEnv(DirectRLEnv):
         # increment global step counter for curriculum
         self._global_step_counter += 1
 
-        # compute current swing penalty from curriculum
-        progress = min(1.0, self._global_step_counter / self.cfg.swing_curriculum_steps)
-        current_swing_penalty = (
-            self.cfg.swing_penalty_start
-            + progress * (self.cfg.swing_penalty_end - self.cfg.swing_penalty_start)
-        )
+        # compute current swing penalty from curriculum (only if swing reward is enabled)
+        if self.cfg.rew_swing_phase_ground != 0.0:
+            progress = min(1.0, self._global_step_counter / self.cfg.swing_curriculum_steps)
+            current_swing_penalty = (
+                self.cfg.swing_penalty_start
+                + progress * (self.cfg.swing_penalty_end - self.cfg.swing_penalty_start)
+            )
+        else:
+            current_swing_penalty = 0.0
 
         # foot body state: positions [N, 2, 3] and velocities [N, 2, 6]
         foot_pos_w = self.robot.data.body_pos_w[:, self._foot_body_ids, :]
