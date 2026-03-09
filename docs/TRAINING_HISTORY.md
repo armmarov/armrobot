@@ -1042,7 +1042,51 @@ EngineAI uses accumulated delta-z heights: reset to 0 on contact, track rise dur
 
 All reward weights unchanged from Run 25.
 
+**Results (KILLED at iter 2203 — shuffling, feet_air_time → 0):**
+
+| Iter | Reward | Ep Length | Noise Std | Value Loss | vel_x | feet_air_time |
+|------|--------|-----------|-----------|------------|-------|---------------|
+| 154 | 455 | 370 | 0.74 | 29 | 0.18 | 0.18 |
+| 500 | 900 | 590 | 0.49 | 200 | 0.35 | 0.10 |
+| 728 | 1349 | 783 | 0.44 | 148 | 0.51 | 0.02 |
+| 1020 | 1513 | 838 | 0.39 | 714 | 0.71 | 0.15 |
+| 1315 | 1619 | 865 | 0.35 | 22 | 0.50 | 0.09 |
+| 2203 | 2116 | 994 | 0.29 | 234 | 0.51 | 0.00 |
+
+**Assessment:**
+- ✅ Value loss stable, ✅ vel_x 0.50+ (good forward movement)
+- ❌ feet_air_time → 0.00 (converged to shuffling again)
+- Clearance fix improved early signals (0.18 at iter 150 vs Run 25's 0.05) but not enough
+- Noise std 0.29 = fully converged, no recovery
+
+**Root causes identified (deep EngineAI comparison):**
+1. **Air-time formula wrong:** We use `clamp(0, 0.5)` (rewards ANY lifting). EngineAI uses `(air_time - 0.5)` which PENALIZES steps shorter than 0.5s — shuffling gets negative reward!
+2. **No contact filtering:** EngineAI uses `contact_filt = contact OR last_contacts` (debounce). We use raw contact — noisy height-based detection causes premature air_time resets.
+3. **target_feet_height too high:** 0.20m (our) vs 0.10m (EngineAI actual value).
+
+---
+
+## Run 27 — Fix air-time formula + contact filtering + target height
+
+**Date:** 2026-03-10
+
+**Changes from Run 26 (3 critical fixes):**
+
+1. **Air-time formula: clamp → subtract threshold (EngineAI-style)**
+   - Old: `clamp(air_time, 0, 0.5) * first_contact` — rewards any lifting
+   - New: `(air_time - 0.5) * first_contact` — penalizes steps < 0.5s
+   - This is the #1 suspected cause of shuffling: micro-lifts got positive reward
+
+2. **Contact filtering: add contact_filt debouncing**
+   - Old: raw contact (noisy z-height, premature air_time resets)
+   - New: `contact_filt = contact OR last_contacts` (EngineAI-style debounce)
+   - Also: `first_contact = (air_time > 0) AND contact_filt` (EngineAI-style)
+
+3. **target_feet_height: 0.20 → 0.10** (actual EngineAI value)
+   - 0.20 was wrong — EngineAI config uses 0.10m
+   - max_feet_height: 0.25 → 0.15 (match)
+
 **Goals:**
-- feet_air_time > 0.2 after iter 500 (THE critical metric)
-- vel_x > 0.3 (maintain Run 25 forward movement)
-- Value loss < 1500 (should remain stable)
+- feet_air_time > 0.2 after iter 500 (critical test of air-time formula fix)
+- vel_x > 0.3
+- Value loss < 1500

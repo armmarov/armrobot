@@ -388,13 +388,20 @@ class ArmrobotleggingEnv(DirectRLEnv):
     def _update_foot_contact(self):
         """Track foot air time and accumulated swing height for gait rewards."""
         contact = self._compute_foot_contact()
-        # detect first-contact events (foot just landed)
-        self.first_contact = contact & ~self.last_foot_contact
+
+        # EngineAI-style contact filtering: debounce with last_contacts
+        # contact_filt = contact OR last_contacts (tolerates 1-step noise)
+        contact_filt = contact | self.last_foot_contact
+
+        # detect first-contact events: foot was in air AND now filtered-contact
+        self.first_contact = (self.foot_air_time > 0.0) & contact_filt
+
         # save air time at the moment of landing (before reset)
         self.air_time_on_contact = self.foot_air_time * self.first_contact.float()
-        # increment air time for feet in the air, reset on contact
+
+        # increment air time for feet in the air, reset on filtered contact
         self.foot_air_time += self._dt
-        self.foot_air_time *= ~contact  # reset to 0 on contact
+        self.foot_air_time *= ~contact_filt  # reset to 0 on filtered contact
 
         # accumulated foot height (EngineAI-style):
         # track how high each foot has risen since last contact
@@ -402,7 +409,7 @@ class ArmrobotleggingEnv(DirectRLEnv):
         delta_z = foot_z - self.last_foot_z
         self.feet_heights += delta_z
         self.last_foot_z = foot_z.clone()
-        self.feet_heights *= ~contact  # reset to 0 on contact
+        self.feet_heights *= ~contact_filt  # reset on filtered contact
 
         self.last_foot_contact = contact
 
@@ -556,11 +563,11 @@ def compute_rewards(
     per_joint_reward = torch.exp(-2.0 * ref_diff.pow(2))  # [N, 12]
     rew_ref_pos = cfg.rew_ref_joint_pos * per_joint_reward.mean(dim=1)
 
-    # --- 3. feet air time (biped-style: clamp 0-0.5, no subtract) ---
-    # reward when foot lands (first contact) proportional to how long it was in the air
-    # air_time_on_contact was captured BEFORE reset, so it has the actual swing duration
+    # --- 3. feet air time (EngineAI-style: subtract threshold to penalize short steps) ---
+    # air_time - 0.5 means: steps < 0.5s get NEGATIVE reward (penalizes shuffling)
+    # Only fires on first_contact (landing event)
     rew_air_time = cfg.rew_feet_air_time * torch.sum(
-        air_time_on_contact.clamp(0, 0.5) * first_contact.float(), dim=-1
+        (air_time_on_contact - 0.5) * first_contact.float(), dim=-1
     )
     # no air time reward when standing still (matching EngineAI)
     rew_air_time *= (torch.norm(commands[:, :2], dim=1) > 0.1)

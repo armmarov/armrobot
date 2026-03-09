@@ -141,7 +141,7 @@ flowchart TB
             R1["tracking_lin_vel = 1.4 × exp(-error²/5.0)<br/>Match commanded vx, vy (Run 20: match EngineAI)"]
             R2["tracking_ang_vel = 1.1 × exp(-error²/5.0)<br/>Match commanded yaw rate (Run 20: match EngineAI)"]
             R3["ref_joint_pos = 2.2 × mean(exp(-2 × diff²))<br/>Per-joint exp then average (Run 20: match EngineAI)"]
-            R4["feet_air_time = 1.5 × Σ(air_time.clamp(0,0.5)) × first_contact<br/>Biped-style: no subtract (Run 20: match EngineAI)"]
+            R4["feet_air_time = 1.5 × Σ((air_time - 0.5) × first_contact)<br/>Run 27: EngineAI subtract-threshold (penalizes steps &lt; 0.5s)"]
             R5["feet_contact_number = 1.4 × mean(match)<br/>Correct stance/swing per phase (Run 20: match EngineAI)"]
             R6["orientation = 1.0 × exp(-roll_pitch_err × 10)<br/>Stay upright (Run 20: match EngineAI)"]
             R7["base_height = 0.2 × exp(-height_err × 100)<br/>Maintain 0.8132m (Run 20: match EngineAI)"]
@@ -336,8 +336,8 @@ sequenceDiagram
 |-------|-------|---------|
 | `cycle_time` | 0.8s | Full gait cycle duration (left swing + right swing). Matches EngineAI |
 | `target_joint_pos_scale` | 0.17 rad | Amplitude of sinusoidal gait reference for hip/ankle. Knee gets 2x (0.34 rad). Run 19: reduced from 0.26 |
-| `target_feet_height` | 0.20m | Target swing foot height. Run 26: match EngineAI (now using accumulated height) |
-| `max_feet_height` | 0.25m | Max allowed swing foot height. Run 26: raised for 0.20m target |
+| `target_feet_height` | 0.10m | Target swing foot height. Run 27: actual EngineAI value (0.20 was wrong) |
+| `max_feet_height` | 0.15m | Max allowed swing foot height. Run 27: match target + margin |
 
 ### 4. Velocity Commands (`armrobotlegging_env_cfg.py`)
 
@@ -392,7 +392,7 @@ sequenceDiagram
 | `rew_tracking_ang_vel` | 1.1 | `w * exp(-error²/sigma)` | Match commanded yaw rate (Run 20: EngineAI) |
 | `rew_tracking_sigma` | 5.0 | (used in above) | Sharpness of tracking reward (Run 20: EngineAI — more forgiving) |
 | `rew_ref_joint_pos` | 2.2 | `w * mean(exp(-2*diff²))` | Follow sinusoidal gait reference (Run 20: EngineAI) |
-| `rew_feet_air_time` | 1.5 | `w * sum(clamp(air,0,0.5) * first_contact)` | Reward foot landing after being in air (Run 20: EngineAI) |
+| `rew_feet_air_time` | 1.5 | `w * sum((air_time - 0.5) * first_contact)` | Penalizes steps < 0.5s, rewards longer steps (Run 27: EngineAI) |
 | `rew_feet_contact_number` | 1.4 | `w * mean(match)` | Reward correct stance/swing pattern (Run 20: EngineAI) |
 | `rew_orientation` | 1.0 | `w * exp(-roll_pitch_err*10)` | Stay upright (Run 20: EngineAI) |
 | `rew_base_height` | 0.2 | `w * exp(-height_err*100)` | Maintain nominal standing height (Run 20: EngineAI) |
@@ -429,7 +429,7 @@ All values shown are **per policy step** (before episode accumulation). Terms 1-
 | 1 | **tracking_lin_vel** | 1.4 | `w × exp(-error²/σ)` | Moving at commanded vx, vy (max 1.4 at error=0) | Moving different speed/direction (→0 as error grows) |
 | 2 | **tracking_ang_vel** | 1.1 | `w × exp(-error²/σ)` | Turning at commanded yaw rate (max 1.1) | Turning wrong speed (→0 as error grows) |
 | 3 | **ref_joint_pos** | 2.2 | `w × mean(exp(-2×diff²))` | All 12 joints match gait reference (max 2.2 at diff=0) | Joints far from ref (>0.6 rad off ≈ 0 per joint) |
-| 4 | **feet_air_time** | 1.5 | `w × Σ(clamp(air,0,0.5) × first_contact)` | Foot lands after being in air up to 0.5s (max 1.5 for both feet) | Feet never lift off → gets 0. Disabled when standing still (cmd < 0.1) |
+| 4 | **feet_air_time** | 1.5 | `w × Σ((air_time-0.5) × first_contact)` | Steps ≥ 0.5s → positive reward. Steps < 0.5s → NEGATIVE (penalizes shuffling). Run 27: EngineAI formula | Shuffling (0.1s steps) → -0.6/step. Good steps (0.5s) → 0. Long steps (0.8s) → +0.45 |
 | 5 | **contact_pattern** | 1.4 | `w × mean(match=+1, miss=-0.3)` | Left on ground when sin≥0, right when sin<0 (max 1.4) | Wrong phase: both wrong → -0.42 |
 | 6 | **orientation** | 1.0 | `w × exp(-roll_pitch_err×10)` | Body upright, roll=0, pitch=0 (max 1.0) | Tilted (15° → half lost; 30° → nearly gone) |
 | 7 | **base_height** | 0.2 | `w × exp(-\|h-target\|×100)` | Base at 0.8132m exactly (max 0.2) | ±0.023m off → 90% lost. Very sharp |
@@ -453,12 +453,12 @@ All values shown are **per policy step** (before episode accumulation). Terms 1-
 #### Sweet Spot Summary — What "Good Walking" Looks Like
 
 ```
-Foot height during swing (accumulated height from contact, Run 26):
+Foot height during swing (accumulated height from contact, Run 26+):
   0.00m ─── shuffling / just landed (clearance penalty, swing_ground penalty)
-  0.10m ─── half target (moderate clearance penalty)
-  0.20m ─── ★ TARGET (zero clearance penalty, max reward zone)
-  0.25m ─── CEILING (feet_height_max penalty starts)
-  0.30m ─── over-lifting (both clearance AND height_max penalty)
+  0.05m ─── half target (moderate clearance penalty)
+  0.10m ─── ★ TARGET (zero clearance penalty, max reward zone)
+  0.15m ─── CEILING (feet_height_max penalty starts)
+  0.20m ─── over-lifting (both clearance AND height_max penalty)
 
 Base height:
   0.45m ─── TERMINATED (fell — episode ends)

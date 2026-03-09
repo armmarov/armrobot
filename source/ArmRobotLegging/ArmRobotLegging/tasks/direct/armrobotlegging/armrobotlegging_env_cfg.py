@@ -137,8 +137,8 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     # feet distance limits [m]
     min_feet_dist: float = 0.15
     max_feet_dist: float = 0.8
-    target_feet_height: float = 0.20         # Run 26: match EngineAI (now using accumulated swing height, not abs z)
-    max_feet_height: float = 0.25            # Run 26: raise to accommodate 0.20 target
+    target_feet_height: float = 0.10         # Run 27: match EngineAI (was 0.20 — too high, 0.10 is actual EngineAI value)
+    max_feet_height: float = 0.15            # Run 27: match target + margin
     rew_feet_height_max: float = -0.24       # -0.6 / 2.5
 
     # penalties
