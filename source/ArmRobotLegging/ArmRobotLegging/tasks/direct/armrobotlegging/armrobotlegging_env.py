@@ -557,11 +557,13 @@ def compute_rewards(
     ang_vel_error = torch.square(commands[:, 2] - ang_vel_b[:, 2])
     rew_ang_vel = cfg.rew_tracking_ang_vel * torch.exp(-ang_vel_error / cfg.rew_tracking_sigma)
 
-    # --- 2. gait reference tracking (EngineAI formula: per-joint exp, then mean) ---
-    # exp(-2*diff²) per joint, then average — each joint penalized independently
+    # --- 2. gait reference tracking (EngineAI formula: exp-of-norm with penalty) ---
+    # exp(-2 * ||diff||) - 0.2 * clamp(||diff||, 0, 0.5)
+    # Unlike mean-of-exp, this uses the NORM across all joints — less "free reward"
+    # when only a few joints deviate, and adds a linear penalty for deviations up to 0.5
     ref_diff = ref_joint_pos - joint_pos_rel
-    per_joint_reward = torch.exp(-2.0 * ref_diff.pow(2))  # [N, 12]
-    rew_ref_pos = cfg.rew_ref_joint_pos * per_joint_reward.mean(dim=1)
+    diff_norm = torch.norm(ref_diff, dim=1)
+    rew_ref_pos = cfg.rew_ref_joint_pos * (torch.exp(-2.0 * diff_norm) - 0.2 * diff_norm.clamp(0, 0.5))
 
     # --- 3. feet air time (EngineAI-style: subtract threshold to penalize short steps) ---
     # air_time - 0.5 means: steps < 0.5s get NEGATIVE reward (penalizes shuffling)

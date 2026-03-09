@@ -1119,7 +1119,65 @@ All reward weights unchanged from Run 25.
 
 All other settings unchanged from Run 27 (contact_filt, accumulated heights, target 0.10m).
 
+**Results (KILLED at iter 1086 — shuffling, event-based exploit):**
+
+| Iter | Reward | Ep Length | Noise Std | Value Loss | vel_x | feet_air_time |
+|------|--------|-----------|-----------|------------|-------|---------------|
+| 100 | 287 | 236 | 0.87 | 18 | 0.11 | -0.61 |
+| 500 | 1193 | 646 | 0.59 | 30 | 0.38 | -0.82 |
+| 800 | 1589 | 818 | 0.48 | 30 | 0.56 | -1.50 |
+| 1086 | 1720 | 853 | 0.42 | 20 | 0.50 | -2.26 |
+
+**Assessment:**
+- ❌ Still shuffling — 10x weight absorbed, feet_air_time increasingly negative
+- Robot exploits event-based reward: slides without lifting = zero first_contact events = zero penalty
+- **Fundamental reward imbalance discovered:** at /2.5 scale, free rewards (+1.48/step) > stepping penalties (-0.54/step)
+
+**Root cause analysis — reward balance at /2.5 scale vs full EngineAI:**
+
+| Metric | /2.5 scale | Full EngineAI |
+|--------|-----------|---------------|
+| Free rewards/step | +1.48 | +3.7 |
+| Stepping penalties/step | -0.54 | -1.2 |
+| Penalty ratio | 27% | 32% |
+| ref_joint_pos formula | mean-of-exp (gives ~0.9 free) | exp-of-norm (gives ~0.3 free) |
+
+The /2.5 scaling preserved the absolute imbalance. EngineAI works because:
+1. Full penalty weights make stepping penalties exceed free rewards
+2. `exp(-2*norm(diff))` formula gives ~0.3 free (vs our ~0.9 from mean-of-exp)
+3. No alive bonus (pure free reward we had at 0.15)
+
+---
+
+## Run 29 — Full EngineAI weights + ref_joint_pos norm formula
+
+**Date:** 2026-03-10
+
+**Changes from Run 28 (comprehensive EngineAI alignment):**
+
+1. **All reward weights restored to FULL EngineAI values** (removed /2.5 scaling):
+   - tracking: 1.4/1.1 (was 0.56/0.44)
+   - ref_joint_pos: 2.2 (was 0.88)
+   - feet_air_time: 1.5 (reverted from 15.0 — formula is correct now)
+   - orientation: 1.0, base_height: 0.2, feet_clearance: -1.6
+   - All other rewards at full EngineAI scale
+
+2. **ref_joint_pos formula: mean-of-exp → exp-of-norm (critical fix)**
+   - Old: `mean(exp(-2*diff²))` — gives ~0.9 free reward (individual joints average out)
+   - New: `exp(-2*norm(diff)) - 0.2*clamp(norm(diff), 0, 0.5)` — gives ~0.3 free (norm is strict)
+   - This is the EngineAI formula; reduces free reward by ~60%
+
+3. **Removed alive bonus**: rew_alive: 0.15 → 0.0 (not in EngineAI, pure free reward)
+
+4. **Disabled swing_phase_ground**: 0.0 (not in EngineAI, was -1067 chaos in earlier runs)
+
+**Expected reward balance at full scale:**
+- Free rewards/step: ~2.3 (down from 3.7 due to ref_joint_pos norm formula)
+- Stepping penalties/step: ~1.2 (full EngineAI)
+- Key: stepping penalties are now meaningful relative to free rewards
+
 **Goals:**
 - feet_air_time must become positive (robot discovers long steps > 0.5s)
 - vel_x > 0.3
-- Value loss < 1500
+- Value loss < 1500 (previous full-weight runs had 17-19K spikes, but bug fixes may help)
+- Watch for value loss stability — this is the first run with full weights + all bug fixes

@@ -140,13 +140,13 @@ flowchart TB
         subgraph POS["Positive rewards (clamped ≥ 0)"]
             R1["tracking_lin_vel = 1.4 × exp(-error²/5.0)<br/>Match commanded vx, vy (Run 20: match EngineAI)"]
             R2["tracking_ang_vel = 1.1 × exp(-error²/5.0)<br/>Match commanded yaw rate (Run 20: match EngineAI)"]
-            R3["ref_joint_pos = 2.2 × mean(exp(-2 × diff²))<br/>Per-joint exp then average (Run 20: match EngineAI)"]
+            R3["ref_joint_pos = 2.2 × (exp(-2×‖diff‖) - 0.2×clamp(‖diff‖,0,0.5))<br/>Run 29: EngineAI exp-of-norm (less free reward than mean-of-exp)"]
             R4["feet_air_time = 1.5 × Σ((air_time - 0.5) × first_contact)<br/>Run 27: EngineAI subtract-threshold (penalizes steps &lt; 0.5s)"]
             R5["feet_contact_number = 1.4 × mean(match)<br/>Correct stance/swing per phase (Run 20: match EngineAI)"]
             R6["orientation = 1.0 × exp(-roll_pitch_err × 10)<br/>Stay upright (Run 20: match EngineAI)"]
             R7["base_height = 0.2 × exp(-height_err × 100)<br/>Maintain 0.8132m (Run 20: match EngineAI)"]
             R8["vel_mismatch = 0.5 × (low_z_vel + low_xy_angvel)<br/>Minimize parasitic motion (Run 20: match EngineAI)"]
-            R9["alive = 0.03<br/>Survival bonus (kept — not in EngineAI)"]
+            R9["alive = 0.0<br/>Run 29: REMOVED (not in EngineAI — pure free reward)"]
             R12["default_joint_pos = 0.8 × (exp(-hip_dev×100) - 0.01×norm)<br/>Keep hip pitch/roll near default (Run 20: match EngineAI)"]
             R13["feet_distance = 0.2 × exp(-deviation×100)<br/>Keep feet within [0.15m, 0.8m] (Run 20: match EngineAI)"]
             R_TVH["track_vel_hard = 0.5 × (exp(-err×10) - 0.2×err)<br/>Sharp velocity tracking (Run 20: match EngineAI)"]
@@ -391,7 +391,7 @@ sequenceDiagram
 | `rew_tracking_lin_vel` | 1.4 | `w * exp(-error²/sigma)` | Match commanded forward/lateral velocity (Run 20: EngineAI) |
 | `rew_tracking_ang_vel` | 1.1 | `w * exp(-error²/sigma)` | Match commanded yaw rate (Run 20: EngineAI) |
 | `rew_tracking_sigma` | 5.0 | (used in above) | Sharpness of tracking reward (Run 20: EngineAI — more forgiving) |
-| `rew_ref_joint_pos` | 2.2 | `w * mean(exp(-2*diff²))` | Follow sinusoidal gait reference (Run 20: EngineAI) |
+| `rew_ref_joint_pos` | 2.2 | `w * (exp(-2*‖diff‖) - 0.2*clamp(‖diff‖,0,0.5))` | Run 29: EngineAI exp-of-norm (less free reward) |
 | `rew_feet_air_time` | 1.5 | `w * sum((air_time - 0.5) * first_contact)` | Penalizes steps < 0.5s, rewards longer steps (Run 27: EngineAI) |
 | `rew_feet_contact_number` | 1.4 | `w * mean(match)` | Reward correct stance/swing pattern (Run 20: EngineAI) |
 | `rew_orientation` | 1.0 | `w * exp(-roll_pitch_err*10)` | Stay upright (Run 20: EngineAI) |
@@ -428,13 +428,13 @@ All values shown are **per policy step** (before episode accumulation). Terms 1-
 |---|------|--------|---------|---------------|----------------|
 | 1 | **tracking_lin_vel** | 1.4 | `w × exp(-error²/σ)` | Moving at commanded vx, vy (max 1.4 at error=0) | Moving different speed/direction (→0 as error grows) |
 | 2 | **tracking_ang_vel** | 1.1 | `w × exp(-error²/σ)` | Turning at commanded yaw rate (max 1.1) | Turning wrong speed (→0 as error grows) |
-| 3 | **ref_joint_pos** | 2.2 | `w × mean(exp(-2×diff²))` | All 12 joints match gait reference (max 2.2 at diff=0) | Joints far from ref (>0.6 rad off ≈ 0 per joint) |
+| 3 | **ref_joint_pos** | 2.2 | `w × (exp(-2×‖diff‖) - 0.2×clamp(‖diff‖,0,0.5))` | All 12 joints match gait reference (max ~2.0 at diff=0). Run 29: exp-of-norm gives ~0.3 free (vs 0.9 from old mean-of-exp) | Joints far from ref: norm>2 → exp≈0, penalty -0.2×0.5=-0.1 |
 | 4 | **feet_air_time** | 1.5 | `w × Σ((air_time-0.5) × first_contact)` | Steps ≥ 0.5s → positive reward. Steps < 0.5s → NEGATIVE (penalizes shuffling). Run 27: EngineAI formula | Shuffling (0.1s steps) → -0.6/step. Good steps (0.5s) → 0. Long steps (0.8s) → +0.45 |
 | 5 | **contact_pattern** | 1.4 | `w × mean(match=+1, miss=-0.3)` | Left on ground when sin≥0, right when sin<0 (max 1.4) | Wrong phase: both wrong → -0.42 |
 | 6 | **orientation** | 1.0 | `w × exp(-roll_pitch_err×10)` | Body upright, roll=0, pitch=0 (max 1.0) | Tilted (15° → half lost; 30° → nearly gone) |
 | 7 | **base_height** | 0.2 | `w × exp(-\|h-target\|×100)` | Base at 0.8132m exactly (max 0.2) | ±0.023m off → 90% lost. Very sharp |
 | 8 | **vel_mismatch** | 0.5 | `w × 0.5(exp_z + exp_xy)` | No vertical bouncing or sideways rocking (max 0.5) | Bouncing up/down or rocking side to side (→0) |
-| 9 | **alive** | 0.03 | `w × 1.0` | Always — constant +0.03 every step | Never penalized |
+| 9 | **alive** | 0.0 | `w × 1.0` | Run 29: REMOVED (not in EngineAI — pure free reward) | N/A |
 | 10 | **default_joint_pos** | 0.8 | `w × (exp(-hip×100) - 0.01×norm)` | Hip pitch/roll near default pose (max ~0.8) | Hip dev > 0.05 rad: exp≈0. Can go negative from linear norm |
 | 11 | **feet_distance** | 0.2 | `w × 0.5(exp_min + exp_max)` | Feet 0.15–0.8m apart (max 0.2) | Feet too close (<0.15m) or too far (>0.8m) → 0 |
 | 12 | **track_vel_hard** | 0.5 | `w × (exp(-err×10) - 0.2×err)` | Velocity error near 0 (max ~0.5) | Error > ~0.6 m/s: goes negative |

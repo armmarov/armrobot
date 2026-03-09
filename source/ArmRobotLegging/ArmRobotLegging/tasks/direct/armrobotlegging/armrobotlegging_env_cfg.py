@@ -113,44 +113,44 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     swing_penalty_end: float = -0.8             # relaxed at end (allows survival)
     swing_curriculum_steps: int = 144000        # anneal over ~3000 iters (3000 * 48 steps)
 
-    # ---------- reward scales (Run 25: /2.5 base + targeted gait boost + fix free rewards) ----------
-    # Run 23: /2.5 stable + forward walking but shuffling (feet_air_time=0)
-    # Run 24: boosting all 4 gait terms to /1 destabilized value loss (ref_joint_pos
-    #         gives ~800 free reward from joints near zero). Fix: only boost the 3
-    #         terms that directly enforce stepping, reduce free reward sources.
+    # ---------- reward scales (Run 29: FULL EngineAI weights + bug fixes) ----------
+    # Runs 23-28: /2.5 scaling avoided value loss but allowed shuffling because
+    # free rewards (+1.48/step) exceeded stepping penalties (-0.54/step).
+    # EngineAI full weights work because stepping penalties (-1.2/step) > free rewards.
+    # Bug fixes (clearance, air-time formula, contact_filt) should stabilize value loss.
     #
-    # velocity tracking — tighten sigma to reduce free reward from standing
-    rew_tracking_lin_vel: float = 0.56       # /2.5
-    rew_tracking_ang_vel: float = 0.44       # /2.5
-    rew_tracking_sigma: float = 3.0          # Run 25: tighten (was 5.0 — gave 95% reward for standing)
+    # velocity tracking
+    rew_tracking_lin_vel: float = 1.4        # Run 29: FULL EngineAI
+    rew_tracking_ang_vel: float = 1.1        # Run 29: FULL EngineAI
+    rew_tracking_sigma: float = 5.0          # Run 29: FULL EngineAI (tighter=harder to exploit)
 
-    # gait quality — only 3 stepping enforcers boosted (NOT ref_joint_pos)
-    rew_ref_joint_pos: float = 0.88          # Run 25: back to /2.5 (2.2 gave 800 free reward)
-    rew_feet_air_time: float = 15.0          # Run 28: 10x EngineAI — at 1.5 penalty was <0.2% of total reward
-    rew_feet_contact_number: float = 1.4     # FULL EngineAI — forces alternating gait
-    rew_orientation: float = 0.40            # /2.5
-    rew_base_height: float = 0.08            # /2.5
-    rew_feet_clearance: float = -1.6         # FULL EngineAI — penalizes shuffling
-    rew_default_joint_pos: float = 0.05      # Run 25: near-zero (was 0.32 — exp(-100x) penalized stepping)
-    rew_feet_distance: float = 0.08          # /2.5
+    # gait quality — ALL at full EngineAI
+    rew_ref_joint_pos: float = 2.2           # Run 29: FULL EngineAI (formula also fixed to use norm)
+    rew_feet_air_time: float = 1.5           # Run 29: FULL EngineAI (was 15.0, revert — formula is correct now)
+    rew_feet_contact_number: float = 1.4     # FULL EngineAI
+    rew_orientation: float = 1.0             # Run 29: FULL EngineAI
+    rew_base_height: float = 0.2             # Run 29: FULL EngineAI
+    rew_feet_clearance: float = -1.6         # FULL EngineAI
+    rew_default_joint_pos: float = 0.8       # Run 29: FULL EngineAI
+    rew_feet_distance: float = 0.2           # Run 29: FULL EngineAI
 
     # feet distance limits [m]
     min_feet_dist: float = 0.15
     max_feet_dist: float = 0.8
-    target_feet_height: float = 0.10         # Run 27: match EngineAI (was 0.20 — too high, 0.10 is actual EngineAI value)
-    max_feet_height: float = 0.15            # Run 27: match target + margin
-    rew_feet_height_max: float = -0.24       # -0.6 / 2.5
+    target_feet_height: float = 0.10         # EngineAI value
+    max_feet_height: float = 0.15            # margin above target
+    rew_feet_height_max: float = -0.6        # Run 29: FULL EngineAI (was -0.24)
 
-    # penalties
-    rew_action_smoothness: float = -0.0012   # EngineAI -0.003 / 2.5
+    # penalties — all at FULL EngineAI
+    rew_action_smoothness: float = -0.003    # Run 29: FULL EngineAI
     rew_energy: float = -0.00002             # keep (different formula than EngineAI)
-    rew_vel_mismatch: float = 0.20           # EngineAI 0.5 / 2.5
-    rew_foot_slip: float = -0.04             # EngineAI -0.1 / 2.5
-    rew_alive: float = 0.03                  # keep (not in EngineAI)
-    rew_termination: float = -0.0            # keep (EngineAI uses -0.0)
-    rew_track_vel_hard: float = 0.20         # EngineAI 0.5 / 2.5
-    rew_low_speed: float = 0.08              # EngineAI 0.2 / 2.5
-    rew_dof_vel: float = -4e-6               # EngineAI -1e-5 / 2.5
-    rew_dof_acc: float = -2e-9               # EngineAI -5e-9 / 2.5
+    rew_vel_mismatch: float = 0.5            # Run 29: FULL EngineAI
+    rew_foot_slip: float = -0.1              # Run 29: FULL EngineAI
+    rew_alive: float = 0.0                   # Run 29: REMOVED (not in EngineAI — pure free reward)
+    rew_termination: float = -0.0            # EngineAI uses -0.0
+    rew_track_vel_hard: float = 0.5          # Run 29: FULL EngineAI
+    rew_low_speed: float = 0.2               # Run 29: FULL EngineAI
+    rew_dof_vel: float = -1e-5               # Run 29: FULL EngineAI
+    rew_dof_acc: float = -5e-9               # Run 29: FULL EngineAI
     rew_lat_vel: float = 0.06                # keep (not in EngineAI)
-    rew_swing_phase_ground: float = -0.8     # keep curriculum (not scaled — it's our addition)
+    rew_swing_phase_ground: float = 0.0      # Run 29: DISABLED (not in EngineAI, was -1067 chaos)
