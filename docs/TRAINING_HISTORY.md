@@ -877,8 +877,62 @@ All other params unchanged (num_learning_epochs=2, EngineAI reward weights).
 
 **Rationale:** Runs 20 and 21 both showed catastrophic value loss spikes (17-20K) with EngineAI reward weights, regardless of epochs (5 or 2). The last remaining PPO config difference vs EngineAI is observation normalization. EngineAI does NOT normalize observations — the networks receive raw values. Our running mean/std normalizer may interact badly with the large reward magnitudes, causing the critic to produce unstable value estimates.
 
+**Results (KILLED at iter ~551 — STANDING STILL + value loss spikes 18.8K):**
+
+| Iter | Reward | Ep Length | Noise | Value Loss | vel_x | feet_air_time |
+|------|--------|-----------|-------|------------|-------|---------------|
+| 117 | 408 | 96 | 0.97 | 185 | 0.19 | 0.01 |
+| 200 | 555 | 119 | 0.93 | 232 | ~0.1 | 0.03 |
+| 350 | 1,668 | 368 | 0.90 | 402 | ~0 | 0.02 |
+| 450 | 1,844 | 406 | 0.88 | 100 | ~0 | 0.00 |
+| 500 | 1,837 | 388 | 0.86 | 878 | ~0 | 0.01 |
+| 551 | 2,016 | 424 | 0.85 | 18,839 | 0.05 | 0.00 |
+
+**Failure analysis:**
+- Disabling obs normalization delayed spike onset by ~15 iters but did NOT prevent them
+- All 3 PPO config hypotheses eliminated:
+  - Run 20: EngineAI weights + epochs=5 + obs_norm=ON → 17K spikes
+  - Run 21: epochs=2 + obs_norm=ON → 19K spikes
+  - Run 22: epochs=2 + obs_norm=OFF → 18.8K spikes
+- **Conclusion: EngineAI reward magnitudes are fundamentally too large for our setup, regardless of PPO config**
+
+---
+
+## Run 23 — EngineAI Ratios at Stable Scale (/2.5)
+
+**Date:** 2026-03-09
+
+**Changes from Run 22:**
+1. **Restore proven PPO config**: num_learning_epochs=5, obs_normalization=ON (stable in Runs 13-19)
+2. **Scale all EngineAI weights by /2.5**: preserves EngineAI ratios but reduces magnitudes to prevent value loss spikes. Factor /2.5 chosen as midpoint between /5 (too weak, Run 14-19) and /1 (too strong, Run 20-22).
+
+**Reward weights (EngineAI / 2.5):**
+
+| Parameter | EngineAI | Run 20-22 (/1) | Run 23 (/2.5) | Run 14-19 (/5) |
+|-----------|----------|----------------|---------------|----------------|
+| rew_tracking_lin_vel | 1.4 | 1.4 | **0.56** | 0.28 |
+| rew_tracking_ang_vel | 1.1 | 1.1 | **0.44** | 0.22 |
+| rew_tracking_sigma | 5.0 | 5.0 | **5.0** | 2.5 |
+| rew_ref_joint_pos | 2.2 | 2.2 | **0.88** | 0.44 |
+| rew_feet_air_time | 1.5 | 1.5 | **0.60** | 0.30 |
+| rew_feet_contact_number | 1.4 | 1.4 | **0.56** | 0.28 |
+| rew_orientation | 1.0 | 1.0 | **0.40** | 0.20 |
+| rew_base_height | 0.2 | 0.2 | **0.08** | 0.04 |
+| rew_feet_clearance | -1.6 | -1.6 | **-0.64** | -0.32 |
+| rew_default_joint_pos | 0.8 | 0.8 | **0.32** | 0.16 |
+| rew_feet_distance | 0.2 | 0.2 | **0.08** | 0.04 |
+| rew_action_smoothness | -0.003 | -0.003 | **-0.0012** | -0.0006 |
+| rew_vel_mismatch | 0.5 | 0.5 | **0.20** | 0.10 |
+| rew_foot_slip | -0.1 | -0.1 | **-0.04** | -0.02 |
+| rew_track_vel_hard | 0.5 | 0.5 | **0.20** | 0.10 |
+| rew_low_speed | 0.2 | 0.2 | **0.08** | 0.06 |
+| rew_dof_vel | -1e-5 | -1e-5 | **-4e-6** | -2e-6 |
+| rew_dof_acc | -5e-9 | -5e-9 | **-2e-9** | -1e-9 |
+
+Note: tracking_sigma kept at 5.0 (it's a shape parameter, not a weight).
+
 **Goals:**
-- Stable value loss (no spikes >1000)
-- Proper alternating gait with feet_air_time > 1.0
+- Stable value loss (no spikes >1000) — proven stable at /5 scale
+- Proper alternating gait — gait enforcement 2x stronger than /5 scale
+- vel_x > 0.3, feet_air_time > 0.5
 - ep_length > 500
-- vel_x > 0.3 sustained

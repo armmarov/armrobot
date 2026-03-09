@@ -13,7 +13,7 @@ flowchart TB
     subgraph AGENT["PPO Agent"]
         subgraph ACTOR["Actor (Policy) Network"]
             direction TB
-            A_NORM["No Normalizer (disabled Run 22)<br/>[4096, 64] → [4096, 64]"]
+            A_NORM["Running Mean/Std Normalizer<br/>[4096, 64] → [4096, 64]"]
             A_L1["Linear(64, 512) + ELU<br/>→ [4096, 512]"]
             A_L2["Linear(512, 256) + ELU<br/>→ [4096, 256]"]
             A_L3["Linear(256, 128) + ELU<br/>→ [4096, 128]"]
@@ -24,7 +24,7 @@ flowchart TB
 
         subgraph CRITIC["Critic (Value) Network"]
             direction TB
-            C_NORM["No Normalizer (disabled Run 22)<br/>[4096, 64] → [4096, 64]"]
+            C_NORM["Running Mean/Std Normalizer<br/>[4096, 64] → [4096, 64]"]
             C_L1["Linear(64, 768) + ELU<br/>→ [4096, 768]"]
             C_L2["Linear(768, 256) + ELU<br/>→ [4096, 256]"]
             C_L3["Linear(256, 128) + ELU<br/>→ [4096, 128]"]
@@ -73,8 +73,8 @@ flowchart LR
         I["Observation [4096, 64]<br/>────────────────<br/>lin_vel_b [3]<br/>ang_vel_b [3]<br/>proj_gravity [3]<br/>joint_pos_rel [12]<br/>joint_vel [12]<br/>prev_actions [12]<br/>commands [3]<br/>sin/cos_phase [2]<br/>ref_joint_diff [12]<br/>contact_mask [2]"]
     end
 
-    subgraph NORMALIZE["No Normalization (Run 22)"]
-        N["Raw observations passed directly<br/>────────────────<br/>Disabled to match EngineAI"]
+    subgraph NORMALIZE["Normalize"]
+        N["x̂ = (x - μ_run) / σ_run<br/>────────────────<br/>Updated each iteration<br/>from collected obs"]
     end
 
     subgraph HIDDEN["Hidden Layers"]
@@ -102,8 +102,8 @@ flowchart LR
         I2["Observation [4096, 64]<br/>(same as actor)"]
     end
 
-    subgraph NORMALIZE2["No Normalization (Run 22)"]
-        N2["Raw observations passed directly<br/>(disabled to match EngineAI)"]
+    subgraph NORMALIZE2["Normalize"]
+        N2["x̂ = (x - μ_run) / σ_run<br/>(separate normalizer)"]
     end
 
     subgraph HIDDEN2["Hidden Layers"]
@@ -436,7 +436,7 @@ target = default_joint_pos + 0.5 × action
 | Actor log_std | [12] | 12 | RSL-RL (init_noise_std=1.0) |
 | Critic hidden | [768, 256, 128] | 279,680 | `rsl_rl_ppo_cfg.py` |
 | Critic output (V) | [1] | 129 | RSL-RL |
-| Obs normalizer | disabled | - | Disabled Run 22 (match EngineAI) |
+| Obs normalizer | μ,σ [64] each | - (not trainable) | RSL-RL (empirical) |
 | **Total trainable** | | **~478,873** | |
 | Rollout buffer | 48 × 4096 | 196,608 transitions | `rsl_rl_ppo_cfg.py` |
 | Training iterations | 10000 | ~1.97B env steps | `rsl_rl_ppo_cfg.py` |

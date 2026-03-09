@@ -113,39 +113,43 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     swing_penalty_end: float = -0.8             # relaxed at end (allows survival)
     swing_curriculum_steps: int = 144000        # anneal over ~3000 iters (3000 * 48 steps)
 
-    # ---------- reward scales (Run 20: match EngineAI reference values) ----------
+    # ---------- reward scales (Run 23: EngineAI ratios / 2.5) ----------
+    # Runs 20-22 proved full EngineAI magnitudes cause 17-19K value loss spikes.
+    # Runs 14-19 (/5) had stable value loss but weak gait enforcement.
+    # Run 23: /2.5 = midpoint — preserves EngineAI ratios, 2x stronger than /5.
+    #
     # velocity tracking
-    rew_tracking_lin_vel: float = 1.4        # Run 20: match EngineAI (was 0.28)
-    rew_tracking_ang_vel: float = 1.1        # Run 20: match EngineAI (was 0.5)
-    rew_tracking_sigma: float = 5.0          # Run 20: match EngineAI (was 2.5 — too strict)
+    rew_tracking_lin_vel: float = 0.56       # EngineAI 1.4 / 2.5
+    rew_tracking_ang_vel: float = 0.44       # EngineAI 1.1 / 2.5
+    rew_tracking_sigma: float = 5.0          # shape param, not scaled
 
     # gait quality
-    rew_ref_joint_pos: float = 2.2           # Run 20: match EngineAI (was 0.44 — gait ref must be strong)
-    rew_feet_air_time: float = 1.5           # Run 20: match EngineAI (was 0.8)
-    rew_feet_contact_number: float = 1.4     # Run 20: match EngineAI (was 0.28 — KEY for alternating gait)
-    rew_orientation: float = 1.0             # Run 20: match EngineAI (was 0.4)
-    rew_base_height: float = 0.2             # Run 20: match EngineAI (was 0.4)
-    rew_feet_clearance: float = -1.6         # Run 20: match EngineAI magnitude (was -0.8)
-    rew_default_joint_pos: float = 0.8       # Run 20: match EngineAI (was 0.16)
-    rew_feet_distance: float = 0.2           # Run 20: match EngineAI (was 0.04)
+    rew_ref_joint_pos: float = 0.88          # EngineAI 2.2 / 2.5 (2x stronger than /5's 0.44)
+    rew_feet_air_time: float = 0.60          # EngineAI 1.5 / 2.5 (2x stronger than /5's 0.30)
+    rew_feet_contact_number: float = 0.56    # EngineAI 1.4 / 2.5 (2x stronger than /5's 0.28)
+    rew_orientation: float = 0.40            # EngineAI 1.0 / 2.5
+    rew_base_height: float = 0.08            # EngineAI 0.2 / 2.5
+    rew_feet_clearance: float = -0.64        # EngineAI -1.6 / 2.5
+    rew_default_joint_pos: float = 0.32      # EngineAI 0.8 / 2.5 (2x stronger than /5's 0.16)
+    rew_feet_distance: float = 0.08          # EngineAI 0.2 / 2.5
 
     # feet distance limits [m]
     min_feet_dist: float = 0.15
     max_feet_dist: float = 0.8
-    target_feet_height: float = 0.10         # Run 20: match EngineAI (was 0.06)
-    max_feet_height: float = 0.15            # Run 20: raise ceiling (was 0.12, EngineAI doesn't have this)
-    rew_feet_height_max: float = -0.6        # Run 19: keep — prevents over-lifting
+    target_feet_height: float = 0.10         # keep EngineAI value (not scaled — geometry param)
+    max_feet_height: float = 0.15            # keep (not in EngineAI)
+    rew_feet_height_max: float = -0.24       # -0.6 / 2.5
 
     # penalties
-    rew_action_smoothness: float = -0.003    # Run 20: match EngineAI (was -0.0006)
-    rew_energy: float = -0.00002             # EngineAI uses -1e-10 (torques), keep ours
-    rew_vel_mismatch: float = 0.5            # Run 20: match EngineAI (was 0.1)
-    rew_foot_slip: float = -0.1              # Run 20: match EngineAI (was -0.02)
-    rew_alive: float = 0.03                  # keep (EngineAI doesn't have explicit alive bonus)
-    rew_termination: float = -0.0            # Run 20: match EngineAI (was -0.5, EngineAI uses -0.0)
-    rew_track_vel_hard: float = 0.5          # Run 20: match EngineAI (was 0.1)
-    rew_low_speed: float = 0.2               # Run 20: match EngineAI (was 0.3)
-    rew_dof_vel: float = -1e-5               # Run 20: match EngineAI (was -2e-6)
-    rew_dof_acc: float = -5e-9               # Run 20: match EngineAI (was -1e-9)
-    rew_lat_vel: float = 0.06                # keep (EngineAI doesn't have this — uses knee_distance instead)
-    rew_swing_phase_ground: float = -0.8     # keep curriculum (EngineAI doesn't have this)
+    rew_action_smoothness: float = -0.0012   # EngineAI -0.003 / 2.5
+    rew_energy: float = -0.00002             # keep (different formula than EngineAI)
+    rew_vel_mismatch: float = 0.20           # EngineAI 0.5 / 2.5
+    rew_foot_slip: float = -0.04             # EngineAI -0.1 / 2.5
+    rew_alive: float = 0.03                  # keep (not in EngineAI)
+    rew_termination: float = -0.0            # keep (EngineAI uses -0.0)
+    rew_track_vel_hard: float = 0.20         # EngineAI 0.5 / 2.5
+    rew_low_speed: float = 0.08              # EngineAI 0.2 / 2.5
+    rew_dof_vel: float = -4e-6               # EngineAI -1e-5 / 2.5
+    rew_dof_acc: float = -2e-9               # EngineAI -5e-9 / 2.5
+    rew_lat_vel: float = 0.06                # keep (not in EngineAI)
+    rew_swing_phase_ground: float = -0.8     # keep curriculum (not scaled — it's our addition)

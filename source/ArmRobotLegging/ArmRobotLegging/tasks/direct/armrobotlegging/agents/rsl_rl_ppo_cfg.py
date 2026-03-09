@@ -9,11 +9,11 @@ class PM01WalkingPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 10000
     save_interval = 200
     experiment_name = "pm01_walking"
-    empirical_normalization = False  # Run 22: disable obs normalization to match EngineAI
+    empirical_normalization = True  # Run 23: restore (proven stable in Runs 13-19)
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,
-        actor_obs_normalization=False,  # Run 22: match EngineAI (was True)
-        critic_obs_normalization=False,  # Run 22: match EngineAI (was True)
+        actor_obs_normalization=True,   # Run 23: restore
+        critic_obs_normalization=True,  # Run 23: restore
         actor_hidden_dims=[512, 256, 128],
         critic_hidden_dims=[768, 256, 128],
         activation="elu",
@@ -23,7 +23,7 @@ class PM01WalkingPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         use_clipped_value_loss=True,
         clip_param=0.2,
         entropy_coef=0.001,
-        num_learning_epochs=2,  # Run 21: match EngineAI (was 5 — caused value loss spikes with large rewards)
+        num_learning_epochs=5,  # Run 23: restore (proven stable)
         num_mini_batches=4,
         learning_rate=1.0e-5,
         schedule="adaptive",
