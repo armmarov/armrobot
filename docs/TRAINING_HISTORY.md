@@ -967,7 +967,39 @@ Selectively boost 4 gait-specific rewards to full EngineAI level while keeping e
 
 All other rewards unchanged from Run 23 (/2.5 scale).
 
+**Results (KILLED at iter ~395 — value loss spikes 6.7K, feet_air_time=0):**
+
+| Iter | Reward | Ep Length | Noise | Value Loss | vel_x | feet_air_time |
+|------|--------|-----------|-------|------------|-------|---------------|
+| 100 | 506 | 187 | 0.89 | 129 | ~0 | 0.01 |
+| 200 | 1,123 | 400 | 0.82 | 66 | ~0 | 0.01 |
+| 246 | 1,104 | 407 | 0.76 | 3,312 | 0.02 | 0.01 |
+| 395 | — | — | — | 6,744 | — | — |
+
+**Failure analysis:**
+- `ref_joint_pos=2.2` gave ~800 free reward (72% of total) from joints near zero during stance
+- This inflated total reward magnitude → value loss spikes returned (6.7K)
+- `default_joint_pos` with `exp(-100*x)` formula actively penalized hip movement needed for stepping
+- `tracking_sigma=5.0` gives 95% reward for standing still when commanded 0.5 m/s
+
+---
+
+## Run 25 — Fix Free Rewards + Targeted Gait Boost
+
+**Date:** 2026-03-10
+
+**Changes from Run 24 (4 targeted fixes):**
+
+| Change | From | To | Why |
+|--------|------|-----|-----|
+| ref_joint_pos | 2.2 | **0.88** (/2.5) | Was 72% free reward — inflated returns |
+| default_joint_pos | 0.32 | **0.05** | exp(-100*x) penalized hip movement for stepping |
+| tracking_sigma | 5.0 | **3.0** | 95% reward for standing → ~87% (more gradient to move) |
+| feet_air_time | 1.5 | **1.5** | Keep — direct stepping enforcer |
+| feet_contact_number | 1.4 | **1.4** | Keep — alternating gait enforcer |
+| feet_clearance | -1.6 | **-1.6** | Keep — anti-shuffle penalty |
+
 **Goals:**
-- Stable value loss (watch for spikes — boosted terms add ~3.5 more reward magnitude)
-- feet_air_time > 1.0 (proper stepping gait)
+- Stable value loss (reduced free reward should help)
+- feet_air_time > 0.5 (stepping, not shuffling)
 - vel_x > 0.3, ep_length > 500
