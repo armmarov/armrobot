@@ -805,10 +805,49 @@ All Run 12 reward params retained (sigma=2.5, low_speed=1.5, pushes ±1.0@4s, pe
 - rew_alive: 0.03
 - rew_lat_vel: 0.06
 
-**Risk:** Value loss spikes may return (this was why Run 14 divided by 5). If so, may need to increase num_learning_epochs or adjust learning rate.
+**Results (KILLED at iter ~555 — STANDING STILL + value loss explosion):**
+
+| Iter | Reward | Ep Length | Noise | Value Loss | vel_x | feet_air_time |
+|------|--------|-----------|-------|------------|-------|---------------|
+| 50 | 304 | 77 | 0.97 | 1,508 | 0.68 | 0.00 |
+| 100 | 537 | 124 | 0.93 | 305 | 0.19 | 0.00 |
+| 150 | 1,049 | 226 | 0.91 | 451 | 0.12 | 0.01 |
+| 200 | 1,622 | 350 | 0.89 | 342 | 0.14 | 0.01 |
+| 300 | 1,874 | 401 | 0.84 | 222 | ~0.1 | 0.00 |
+| 400 | 2,025 | 418 | 0.73 | 175 | ~0.1 | 0.04 |
+| 500 | 2,187 | 440 | 0.65 | 829 | ~0.05 | 0.03 |
+| 555 | ~2,400 | ~498 | 0.61 | 17,834 | -0.09 | 0.00 |
+
+**Failure analysis:**
+- **Value loss explosion**: 15,000-17,800 spikes every ~5 iterations from iter 447 onwards. 100 spikes >1000 out of 555 iterations (18%).
+- **Standing-still exploit**: Robot learned to survive (ep_length 498) without walking. Reward climbed from survival rewards alone.
+- **Root cause**: EngineAI uses `num_learning_epochs=2`, we used `num_learning_epochs=5`. With 5 epochs × large reward weights, the value function is over-updated each rollout, causing catastrophic value loss spikes. The broken value function produces garbage advantage estimates, so the policy never learns locomotion.
+
+---
+
+## Run 21 — Match EngineAI PPO Epochs (Fix Value Loss)
+
+**Date:** 2026-03-09
+
+**Changes from Run 20:**
+1. **num_learning_epochs: 5 → 2** — match EngineAI PPO config. Reduces gradient updates per rollout from 20 (4 batches × 5 epochs) to 8 (4 batches × 2 epochs). This should prevent value function over-updating that caused 17K+ value loss spikes in Run 20.
+
+All reward weights unchanged from Run 20 (EngineAI-matched).
+
+**PPO comparison (our RSL-RL vs EngineAI):**
+
+| Parameter | Run 20 (ours) | Run 21 (ours) | EngineAI |
+|-----------|--------------|--------------|----------|
+| num_learning_epochs | 5 | **2** | 2 |
+| num_mini_batches | 4 | 4 | 4 |
+| learning_rate | 1e-5 | 1e-5 | 1e-5 |
+| clip_param | 0.2 | 0.2 | 0.2 |
+| gamma | 0.994 | 0.994 | 0.994 |
+| lam | 0.9 | 0.9 | 0.9 |
+| obs normalization | ON | ON | OFF |
 
 **Goals:**
-- Proper alternating gait (both legs stepping equally)
-- feet_air_time > 1.0 sustained
+- Stable value loss (no spikes >1000)
+- Proper alternating gait with feet_air_time > 1.0
 - ep_length > 500
-- No shuffling exploit
+- vel_x > 0.3 sustained
