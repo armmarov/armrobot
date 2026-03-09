@@ -424,42 +424,33 @@ sequenceDiagram
 
 ### Reward & Penalty Ranges — What the Robot Needs to Achieve
 
-This section explains the exact conditions under which each reward term produces its maximum/zero/penalty value. All values shown are **per policy step** (before episode accumulation).
+All values shown are **per policy step** (before episode accumulation). Terms 1-14 are summed then **clamped ≥ 0**. Terms 15-23 are always ≤ 0 and subtracted after the clamp.
 
-#### Positive Rewards (summed, then clamped ≥ 0)
-
-| Reward Term | Max Reward (per step) | How to Get Max | Zero/Min Reward | What Causes It |
-|-------------|----------------------|----------------|-----------------|----------------|
-| **tracking_lin_vel** | 0.28 | vel_error = 0 (perfectly match commanded vx, vy) | → 0 as error grows | vel error² ≫ sigma (2.5). At 1.58 m/s error: ~0.10 |
-| **tracking_ang_vel** | 0.5 | yaw_rate_error = 0 | → 0 as error grows | yaw error² ≫ 2.5. At 1.58 rad/s error: ~0.18 |
-| **ref_joint_pos** | 0.44 | All 12 joints match gait reference exactly (diff=0) | → 0.44 × exp(-2×diff²) | Each joint deviating >0.6 rad from ref ≈ 0 per joint |
-| **feet_air_time** | 0.8 (max per foot: 0.4) | Both feet land after being in air 0.5s each | 0 | Standing still (cmd < 0.1), or feet never lift off |
-| **contact_pattern** | 0.28 | Both feet match gait phase (stance when should be stance, swing when should be swing) | -0.084 | Both feet in wrong phase: mean(-0.3, -0.3) × 0.28 |
-| **orientation** | 0.4 | Perfectly upright (roll=0, pitch=0) | → 0 as tilt grows | roll²+pitch² > 0.23 → reward < 0.04 (>90% lost) |
-| **base_height** | 0.4 | Height = 0.8132m (target exactly) | → 0 as height deviates | At ±0.023m off target: 0.04 (90% lost). Very sharp |
-| **vel_mismatch** | 0.1 | Zero vertical velocity AND zero roll/pitch angular velocity | 0.05 (half) | Either z-vel or xy-angular vel is large |
-| **alive** | 0.03 | Always — constant every step | 0.03 (always) | Never zero (unconditional survival bonus) |
-| **default_joint_pos** | ~0.16 | Hip pitch/roll at default (zero deviation), all joints at default | Can go negative | Hip dev > 0.05 rad: exp term ≈ 0. Linear norm penalty grows |
-| **feet_distance** | 0.04 | Feet exactly 0.15m or 0.8m apart (at boundary) | → 0 | Feet too close (<0.15m) or too far (>0.8m), exponential decay |
-| **track_vel_hard** | ~0.1 | Perfect vel tracking (error=0): (1+1)/2 - 0 = 1.0 × 0.1 | Can go negative | At error > ~0.6 m/s: linear penalty exceeds exp bonus |
-| **low_speed** | 0.6 | Speed in [50%-120%] of commanded speed: +2 × 0.3 | 0 | Standing still with no command |
-| | -0.3 | | | Speed < 50% of command: -1 × 0.3 |
-| | -0.6 | | | Moving opposite to command: -2 × 0.3 (worst) |
-| **lat_vel** | 0.06 | Lateral vel matches command exactly | → 0 as error grows | lat_error² > 0.23 → <10% of max |
-
-#### Penalties (always subtracted, never clamped)
-
-| Penalty Term | Zero Penalty (ideal) | When | Max Penalty (bad) | When |
-|-------------|---------------------|------|-------------------|------|
-| **feet_clearance** | 0 | Swing foot at target height (swing_curve × 0.06m) | Unbounded | Foot on ground during peak swing (error = 0.06m → -0.048) or foot very high (error = 0.20m → -0.16) |
-| **feet_height_max** | 0 | Swing foot ≤ 0.12m | Grows with height | Foot at 0.15m: -0.6 × 0.03 = -0.018/foot. At 0.20m: -0.6 × 0.08 = -0.048/foot |
-| **action_smoothness** | 0 | Action identical to previous (no jerk) | Unbounded | Large jerky changes between consecutive actions |
-| **energy** | 0 | Zero action or zero joint velocity | Unbounded | Large torques × high joint velocities |
-| **foot_slip** | 0 | Feet stationary when in contact with ground | Unbounded | Feet sliding at high speed while on ground |
-| **termination** | 0 | Robot didn't fall | -0.5 (one-time) | Robot fell (base_z < 0.45m or body contact) |
-| **swing_phase_ground** | 0 | Swing foot lifted off ground during swing phase | curriculum × -2 (both feet) | Both feet on ground during their swing phase. Early: -1.5×2 = -3.0/step |
-| **dof_vel** | 0 | All joints stationary | Unbounded | High joint velocities (vibration). Typical: -0.02 to -0.07 |
-| **dof_acc** | 0 | Joint velocities constant (no acceleration) | Unbounded | Rapid velocity changes (vibration). Typical: -0.05 to -0.2 |
+| # | Term | Weight | Formula | Rewarded When | Penalized When |
+|---|------|--------|---------|---------------|----------------|
+| 1 | **tracking_lin_vel** | 0.28 | `w × exp(-error²/σ)` | Moving at commanded vx, vy (max 0.28 at error=0) | Moving different speed/direction (→0 as error grows; at 1.58 m/s error: ~0.10) |
+| 2 | **tracking_ang_vel** | 0.5 | `w × exp(-error²/σ)` | Turning at commanded yaw rate (max 0.5) | Turning wrong speed (→0 as error grows) |
+| 3 | **ref_joint_pos** | 0.44 | `w × mean(exp(-2×diff²))` | All 12 joints match gait reference (max 0.44 at diff=0) | Joints far from ref (>0.6 rad off ≈ 0 per joint) |
+| 4 | **feet_air_time** | 0.8 | `w × Σ(clamp(air,0,0.5) × first_contact)` | Foot lands after being in air up to 0.5s (max 0.8 for both feet) | Feet never lift off → gets 0. Disabled when standing still (cmd < 0.1) |
+| 5 | **contact_pattern** | 0.28 | `w × mean(match=+1, miss=-0.3)` | Left on ground when sin≥0, right when sin<0 (max 0.28) | Wrong phase: both wrong → -0.084 |
+| 6 | **orientation** | 0.4 | `w × exp(-roll_pitch_err×10)` | Body upright, roll=0, pitch=0 (max 0.4) | Tilted (15° → half lost; 30° → nearly gone) |
+| 7 | **base_height** | 0.4 | `w × exp(-\|h-target\|×100)` | Base at 0.8132m exactly (max 0.4) | ±0.023m off → 90% lost. Very sharp |
+| 8 | **vel_mismatch** | 0.1 | `w × 0.5(exp_z + exp_xy)` | No vertical bouncing or sideways rocking (max 0.1) | Bouncing up/down or rocking side to side (→0) |
+| 9 | **alive** | 0.03 | `w × 1.0` | Always — constant +0.03 every step | Never penalized |
+| 10 | **default_joint_pos** | 0.16 | `w × (exp(-hip×100) - 0.01×norm)` | Hip pitch/roll near default pose (max ~0.16) | Hip dev > 0.05 rad: exp≈0. Can go negative from linear norm |
+| 11 | **feet_distance** | 0.04 | `w × 0.5(exp_min + exp_max)` | Feet 0.15–0.8m apart (max 0.04) | Feet too close (<0.15m) or too far (>0.8m) → 0 |
+| 12 | **track_vel_hard** | 0.1 | `w × (exp(-err×10) - 0.2×err)` | Velocity error near 0 (max ~0.1) | Error > ~0.6 m/s: goes negative |
+| 13 | **low_speed** | 0.3 | `w × discrete(-1/+2/-2)` | Speed 50-120% of command → +0.6 | <50% → -0.3; opposite direction → -0.6 (worst) |
+| 14 | **lat_vel** | 0.06 | `w × exp(-lat_err²×10)` | Lateral vel matches command (max 0.06) | Lat error grows → 0 |
+| 15 | **action_smoothness** | -0.0006 | `w × (jerk + 2nd_order + 0.05×mag)` | Smooth actions (→0 penalty) | Jerky/oscillating actions (unbounded penalty) |
+| 16 | **energy** | -2e-5 | `w × Σ(action²×\|vel\|)` | Low torques or low velocity (→0) | High torques × high velocities (unbounded) |
+| 17 | **feet_clearance** | -0.8 | `w × ‖target_h - actual_h‖` | Swing foot at target (swing_curve × 0.06m) → 0 | Too low (shuffling) OR too high. Both directions penalized |
+| 18 | **feet_height_max** | -0.6 | `w × Σ(clamp(h-0.12, min=0))` | Swing foot ≤ 0.12m → 0 penalty | >0.12m: at 0.15m → -0.018/foot; at 0.20m → -0.048/foot |
+| 19 | **foot_slip** | -0.02 | `w × Σ(√speed × contact)` | Feet stationary on ground → 0 | Feet sliding while in contact (unbounded) |
+| 20 | **termination** | -0.5 | `w × fell` | Robot didn't fall → 0 | Fell (base < 0.45m or body contact) → one-time -0.5 |
+| 21 | **swing_phase_ground** | curriculum(-1.5→-0.8) | `w × Σ(swing_mask × contact)` | Swing foot in air during swing phase → 0 | Foot on ground during swing. Both feet: up to -3.0/step (early) |
+| 22 | **dof_vel** | -2e-6 | `w × Σ(vel²)` | Low joint velocities → 0 | High velocities/vibration (typical: -0.02 to -0.07) |
+| 23 | **dof_acc** | -1e-9 | `w × Σ(acc²)` | Constant velocities → 0 | Rapid velocity changes (typical: -0.05 to -0.2) |
 
 #### Sweet Spot Summary — What "Good Walking" Looks Like
 
