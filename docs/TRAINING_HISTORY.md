@@ -1176,8 +1176,54 @@ The /2.5 scaling preserved the absolute imbalance. EngineAI works because:
 - Stepping penalties/step: ~1.2 (full EngineAI)
 - Key: stepping penalties are now meaningful relative to free rewards
 
+**Also fixed:** Curriculum bypass bug — swing penalty was -1.5 even when `rew_swing_phase_ground=0.0`.
+
+**Results (KILLED at iter 1160 — standing still, value loss spikes):**
+
+| Iter | Reward | Ep Length | Noise Std | Value Loss | vel_x | feet_air_time | ref_joint_pos |
+|------|--------|-----------|-----------|------------|-------|---------------|---------------|
+| 5 | 185 | 54 | 0.99 | 584 | 0.68 | -0.007 | 12 |
+| 272 | 1905 | 423 | 0.83 | 64 (14K spike) | 0.01 | -0.14 | 283 |
+| 570 | 2060 | 432 | 0.54 | 8 (23K spike) | 0.01 | -0.03 | 308 |
+| 865 | 2358 | 473 | 0.36 | 9 (23K spike) | 0.14 | -0.03 | 405 |
+| 1160 | 2691 | 531 | 0.27 | 75 (20K spike) | 0.12 | 0.0 | 425 |
+
+**Assessment:**
+- ❌ STANDING STILL — vel_x oscillates around 0, never walks forward
+- ❌ VALUE LOSS SPIKE — 20-24K every ~5 iterations, same as Runs 20-22
+- ❌ ref_joint_pos rising (12→425) — norm formula better but still exploitable at weight 2.2
+- ❌ noise_std 0.27 = fully converged on bad behavior, no recovery possible
+- WORSE than /2.5 runs which at least achieved vel_x 0.5+
+
+**Root cause:** Full EngineAI reward magnitudes + num_learning_epochs=5 overwhelm the value function. Value loss spikes every ~5 iters prevent coherent policy learning. EngineAI likely uses different PPO hyperparameters.
+
+---
+
+## Run 30 — Hybrid: /2.5 scaled weights + all bug fixes
+
+**Date:** 2026-03-10
+
+**Changes from Run 29:**
+
+1. **Return to /2.5 scaled weights** (avoid value loss spikes):
+   - tracking: 0.56/0.44, ref_joint_pos: 0.88, air_time: 0.6
+   - orientation: 0.4, clearance: -0.64, all others /2.5
+
+2. **Keep all bug fixes from Runs 26-29:**
+   - exp-of-norm ref_joint_pos formula (less free reward: ~0.3 vs ~0.9)
+   - No alive bonus (removes pure free reward)
+   - contact_filt debouncing
+   - Accumulated feet_heights (not absolute z)
+   - Air-time subtract formula (penalizes steps < 0.5s)
+   - Curriculum bypass fix (respects rew_swing_phase_ground=0.0)
+
+**Expected reward balance at /2.5 scale WITH bug fixes:**
+- Free rewards/step: ~0.7 (down from 1.48 due to norm formula + no alive)
+- Stepping penalties/step: ~0.54
+- Penalty ratio: 77% (up from 36%) — much closer to balance
+- The norm formula is the key: at /2.5 scale, ref_joint_pos free reward drops from 0.36 to ~0.12
+
 **Goals:**
-- feet_air_time must become positive (robot discovers long steps > 0.5s)
-- vel_x > 0.3
-- Value loss < 1500 (previous full-weight runs had 17-19K spikes, but bug fixes may help)
-- Watch for value loss stability — this is the first run with full weights + all bug fixes
+- vel_x > 0.3 (at minimum match previous /2.5 runs)
+- feet_air_time must become positive
+- Value loss < 500 (should be stable at /2.5 scale)
