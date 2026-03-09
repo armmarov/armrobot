@@ -49,6 +49,10 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.first_contact = torch.zeros(self.num_envs, 2, dtype=torch.bool, device=self.device)
         self.air_time_on_contact = torch.zeros(self.num_envs, 2, device=self.device)
 
+        # accumulated foot height during swing (EngineAI-style: reset on contact, accumulate deltas)
+        self.feet_heights = torch.zeros(self.num_envs, 2, device=self.device)
+        self.last_foot_z = torch.zeros(self.num_envs, 2, device=self.device)
+
         # track which envs have zero commands (for gait phase freezing)
         self.still_commands = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
@@ -221,6 +225,7 @@ class ArmrobotleggingEnv(DirectRLEnv):
             air_time_on_contact=self.air_time_on_contact,
             foot_pos_w=foot_pos_w,
             foot_vel_w=foot_vel_w,
+            feet_heights=self.feet_heights,
             reset_terminated=self.reset_terminated,
             device=self.device,
             num_envs=self.num_envs,
@@ -305,6 +310,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.last_foot_contact[env_ids] = False
         self.first_contact[env_ids] = False
         self.air_time_on_contact[env_ids] = 0.0
+        self.feet_heights[env_ids] = 0.0
+        self.last_foot_z[env_ids] = 0.0
         self.still_commands[env_ids] = False
         self._cmd_counter[env_ids] = 0
 
@@ -379,7 +386,7 @@ class ArmrobotleggingEnv(DirectRLEnv):
         return foot_heights < self.cfg.contact_height_threshold
 
     def _update_foot_contact(self):
-        """Track foot air time for gait rewards."""
+        """Track foot air time and accumulated swing height for gait rewards."""
         contact = self._compute_foot_contact()
         # detect first-contact events (foot just landed)
         self.first_contact = contact & ~self.last_foot_contact
@@ -388,6 +395,15 @@ class ArmrobotleggingEnv(DirectRLEnv):
         # increment air time for feet in the air, reset on contact
         self.foot_air_time += self._dt
         self.foot_air_time *= ~contact  # reset to 0 on contact
+
+        # accumulated foot height (EngineAI-style):
+        # track how high each foot has risen since last contact
+        foot_z = self.robot.data.body_pos_w[:, self._foot_body_ids, 2]  # [N, 2]
+        delta_z = foot_z - self.last_foot_z
+        self.feet_heights += delta_z
+        self.last_foot_z = foot_z.clone()
+        self.feet_heights *= ~contact  # reset to 0 on contact
+
         self.last_foot_contact = contact
 
     # ================================================================
@@ -520,6 +536,7 @@ def compute_rewards(
     air_time_on_contact: torch.Tensor,
     foot_pos_w: torch.Tensor,
     foot_vel_w: torch.Tensor,
+    feet_heights: torch.Tensor,
     reset_terminated: torch.Tensor,
     device: torch.device,
     num_envs: int,
@@ -603,24 +620,22 @@ def compute_rewards(
     # --- 10. alive bonus ---
     rew_alive = cfg.rew_alive * torch.ones(num_envs, device=device)
 
-    # --- 11. feet clearance (swing foot height tracking — both too-low AND too-high) ---
-    # compute swing mask: left swings when sin < 0, right swings when sin > 0
+    # --- 11. feet clearance (swing foot height tracking — EngineAI-style) ---
+    # Uses accumulated feet_heights (reset to 0 on contact, tracks rise during swing)
+    # instead of absolute z-position which was broken (foot at 0.148m > target 0.10m)
     swing_mask = torch.zeros(num_envs, 2, device=device)
     swing_mask[:, 0] = (sin_phase < 0).float()   # left foot swing
     swing_mask[:, 1] = (sin_phase > 0).float()   # right foot swing
-    # swing curve magnitude (how high the foot should be)
     swing_curve = torch.zeros(num_envs, 2, device=device)
     swing_curve[:, 0] = torch.clamp(-sin_phase, min=0.0)  # left: -sin when sin < 0
     swing_curve[:, 1] = torch.clamp(sin_phase, min=0.0)   # right: sin when sin > 0
-    # foot heights from ground
-    foot_heights = foot_pos_w[:, :, 2]  # [N, 2]
-    # target height = swing_curve * target_feet_height, penalize deviation (both directions)
+    # target height = swing_curve * target_feet_height, penalize deviation
     target_h = swing_curve * cfg.target_feet_height
-    clearance_error = (target_h - foot_heights) * swing_mask
+    clearance_error = (target_h - feet_heights) * swing_mask
     rew_clearance = cfg.rew_feet_clearance * torch.norm(clearance_error, dim=1)
 
     # --- 11b. max foot height penalty (Run 19: penalize lifting too high) ---
-    over_height = torch.clamp(foot_heights - cfg.max_feet_height, min=0.0) * swing_mask
+    over_height = torch.clamp(feet_heights - cfg.max_feet_height, min=0.0) * swing_mask
     rew_feet_height_max = cfg.rew_feet_height_max * torch.sum(over_height, dim=-1)
 
     # --- 12. default joint position (matching EngineAI formula) ---

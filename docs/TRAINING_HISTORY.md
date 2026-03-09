@@ -999,7 +999,50 @@ All other rewards unchanged from Run 23 (/2.5 scale).
 | feet_contact_number | 1.4 | **1.4** | Keep — alternating gait enforcer |
 | feet_clearance | -1.6 | **-1.6** | Keep — anti-shuffle penalty |
 
+**Results (KILLED at iter 1498 — shuffling, feet_air_time ≈ 0):**
+
+| Iter | Reward | Ep Length | Noise Std | Value Loss | vel_x | feet_air_time | low_speed |
+|------|--------|-----------|-----------|------------|-------|---------------|-----------|
+| 300 | 644 | 431 | 0.61 | 30 | 0.14 | 0.11 | -38 |
+| 500 | 901 | 556 | 0.49 | 227 | 0.26 | 0.06 | -15 |
+| 700 | 1261 | 694 | 0.43 | 180 | 0.50 | 0.07 | +40 |
+| 922 | 1590 | 821 | 0.39 | 156 | 0.63 | 0.10 | +60 |
+| 1209 | 1515 | 751 | 0.33 | 37 | 0.48 | 0.03 | +102 |
+| 1498 | 1746 | 838 | 0.31 | 36 | 0.45 | 0.00 | +137 |
+
+**Assessment:**
+- ✅ Value loss STABLE (avg 36-267, 0 spikes >1500 after iter 400)
+- ✅ vel_x 0.45-0.63 (good forward movement)
+- ❌ feet_air_time → 0.00 (converged to shuffling, same as Run 23)
+- Noise std 0.31 = exploration exhausted, no recovery possible
+
+**Root cause identified during this run:**
+The `feet_clearance` reward had a fundamental bug — it used absolute z-position (`foot_pos_w[:,:,2] ≈ 0.148m` standing flat) instead of accumulated swing height (should start at 0). With target 0.10m, the error was `(0.10 - 0.148) = -0.048`, meaning the penalty **pushed feet DOWN** during swing phase, actively preventing stepping.
+
+EngineAI uses accumulated delta-z heights: reset to 0 on contact, track rise during swing. Their target is 0.20m (not 0.10m).
+
+---
+
+## Run 26 — Fix feet_clearance (EngineAI-style accumulated height)
+
+**Date:** 2026-03-10
+
+**Changes from Run 25 (critical bug fix):**
+
+1. **feet_clearance: use accumulated swing height instead of absolute z-position**
+   - Added `feet_heights` buffer: resets to 0 on contact, accumulates delta-z during swing
+   - Clearance error now correctly = `(target - 0.0)` at ground → penalizes shuffling
+   - Previously = `(target - 0.148)` at ground → penalized foot LIFTING
+
+2. **target_feet_height: 0.10 → 0.20** (match EngineAI)
+   - With absolute z, 0.10 was chosen to be "below standing height" (broken logic)
+   - With accumulated height, 0.20m is how high EngineAI expects swing foot to rise
+
+3. **max_feet_height: 0.15 → 0.25** (accommodate 0.20 target)
+
+All reward weights unchanged from Run 25.
+
 **Goals:**
-- Stable value loss (reduced free reward should help)
-- feet_air_time > 0.5 (stepping, not shuffling)
-- vel_x > 0.3, ep_length > 500
+- feet_air_time > 0.2 after iter 500 (THE critical metric)
+- vel_x > 0.3 (maintain Run 25 forward movement)
+- Value loss < 1500 (should remain stable)

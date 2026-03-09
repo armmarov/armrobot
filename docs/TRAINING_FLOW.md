@@ -159,10 +159,10 @@ flowchart TB
         subgraph NEG["Penalties (always applied)"]
             R10["action_smoothness = -0.003 × (term1 + term2 + term3)<br/>term1-3: jerk penalties (Run 20: match EngineAI)"]
             R11["energy = -0.00002 × Σ(action² × |vel|)<br/>Efficiency (kept — EngineAI uses torques instead)"]
-            R14["feet_clearance = -1.6 × norm(swing_target - foot_height)<br/>Force swing foot to lift (Run 20: match EngineAI, target 0.10m)"]
+            R14["feet_clearance = -1.6 × norm(swing_target - feet_heights)<br/>Force swing foot to lift (Run 26: EngineAI-style accumulated height, target 0.20m)"]
             R15["foot_slip = -0.1 × Σ(√foot_speed × contact)<br/>Penalize sliding on ground (Run 20: match EngineAI)"]
             R16["termination = -0.0 × fell<br/>Fall penalty (Run 20: match EngineAI — disabled)"]
-            R_FHM["feet_height_max = -0.6 × Σ(clamp(h-0.15,0))<br/>Penalize over-lifting above 0.15m (kept — not in EngineAI)"]
+            R_FHM["feet_height_max = -0.6 × Σ(clamp(h-0.25,0))<br/>Penalize over-lifting above 0.25m (Run 26: raised for 0.20m target)"]
             R19["dof_vel = -1e-5 × Σ(joint_vel²)<br/>Penalize joint velocities (Run 20: match EngineAI)"]
             R_SPG["swing_phase_ground = curriculum(-1.5→-0.8) × Σ(swing_mask × contact)<br/>Penalize feet on ground during swing phase (kept — not in EngineAI)"]
             R20["dof_acc = -5e-9 × Σ((Δvel/dt)²)<br/>Penalize joint accelerations (Run 20: match EngineAI)"]
@@ -336,8 +336,8 @@ sequenceDiagram
 |-------|-------|---------|
 | `cycle_time` | 0.8s | Full gait cycle duration (left swing + right swing). Matches EngineAI |
 | `target_joint_pos_scale` | 0.17 rad | Amplitude of sinusoidal gait reference for hip/ankle. Knee gets 2x (0.34 rad). Run 19: reduced from 0.26 |
-| `target_feet_height` | 0.06m | Target swing foot height. Run 19: reduced from 0.08 |
-| `max_feet_height` | 0.12m | Max allowed swing foot height — penalize above this (Run 19) |
+| `target_feet_height` | 0.20m | Target swing foot height. Run 26: match EngineAI (now using accumulated height) |
+| `max_feet_height` | 0.25m | Max allowed swing foot height. Run 26: raised for 0.20m target |
 
 ### 4. Velocity Commands (`armrobotlegging_env_cfg.py`)
 
@@ -410,8 +410,8 @@ sequenceDiagram
 |-------|-------|---------|---------|
 | `rew_action_smoothness` | -0.003 | `w * (jerk + 2nd_order + mag)` | Prevent jerky actions (Run 20: EngineAI) |
 | `rew_energy` | -0.00002 | `w * sum(action² * \|vel\|)` | Penalize energy waste |
-| `rew_feet_clearance` | -1.6 | `w * norm(target_h - actual_h)` | Penalize swing foot deviation from target 0.10m (Run 20: EngineAI) |
-| `rew_feet_height_max` | -0.6 | `w * sum(clamp(h - 0.15, 0))` | Penalize swing foot above 0.15m (not in EngineAI) |
+| `rew_feet_clearance` | -1.6 | `w * norm(target_h - feet_heights)` | Penalize swing foot deviation from target 0.20m (Run 26: EngineAI-style accumulated height) |
+| `rew_feet_height_max` | -0.24 | `w * sum(clamp(h - 0.25, 0))` | Penalize swing foot above 0.25m (Run 26: raised for 0.20m target) |
 | `rew_foot_slip` | -0.1 | `w * sum(sqrt(speed) * contact)` | Penalize sliding on ground (Run 20: EngineAI) |
 | `rew_termination` | -0.0 | `w * fell` | Disabled (Run 20: EngineAI uses -0.0) |
 | `rew_swing_phase_ground` | curriculum(-1.5→-0.8) | `w * sum(swing_mask * contact)` | Penalize foot on ground during swing (not in EngineAI) |
@@ -442,8 +442,8 @@ All values shown are **per policy step** (before episode accumulation). Terms 1-
 | 14 | **lat_vel** | 0.06 | `w × exp(-lat_err²×10)` | Lateral vel matches command (max 0.06) | Lat error grows → 0 |
 | 15 | **action_smoothness** | -0.003 | `w × (jerk + 2nd_order + 0.05×mag)` | Smooth actions (→0 penalty) | Jerky/oscillating actions (unbounded penalty) |
 | 16 | **energy** | -2e-5 | `w × Σ(action²×\|vel\|)` | Low torques or low velocity (→0) | High torques × high velocities (unbounded) |
-| 17 | **feet_clearance** | -1.6 | `w × ‖target_h - actual_h‖` | Swing foot at target (swing_curve × 0.10m) → 0 | Too low (shuffling) OR too high. Both directions penalized |
-| 18 | **feet_height_max** | -0.6 | `w × Σ(clamp(h-0.15, min=0))` | Swing foot ≤ 0.15m → 0 penalty | >0.15m: at 0.18m → -0.018/foot; at 0.25m → -0.06/foot |
+| 17 | **feet_clearance** | -1.6 | `w × ‖target_h - feet_heights‖` | Swing foot at target (swing_curve × 0.20m) → 0 | Too low (shuffling) OR too high. Uses accumulated swing height (Run 26) |
+| 18 | **feet_height_max** | -0.24 | `w × Σ(clamp(h-0.25, min=0))` | Swing foot ≤ 0.25m → 0 penalty | >0.25m: over-lifting penalty (Run 26) |
 | 19 | **foot_slip** | -0.1 | `w × Σ(√speed × contact)` | Feet stationary on ground → 0 | Feet sliding while in contact (unbounded) |
 | 20 | **termination** | -0.0 | `w × fell` | Disabled (EngineAI uses -0.0) | — |
 | 21 | **swing_phase_ground** | curriculum(-1.5→-0.8) | `w × Σ(swing_mask × contact)` | Swing foot in air during swing phase → 0 | Foot on ground during swing. Both feet: up to -3.0/step (early) |
@@ -453,13 +453,12 @@ All values shown are **per policy step** (before episode accumulation). Terms 1-
 #### Sweet Spot Summary — What "Good Walking" Looks Like
 
 ```
-Foot height during swing:
-  0.00m ─── shuffling (clearance penalty, swing_ground penalty)
-  0.05m ─── half target (small clearance penalty)
-  0.10m ─── ★ TARGET (zero clearance penalty, max reward zone)
-  0.12m ─── above target (clearance penalty kicks in)
-  0.15m ─── CEILING (feet_height_max penalty starts)
-  0.20m ─── way too high (both clearance AND height_max penalty)
+Foot height during swing (accumulated height from contact, Run 26):
+  0.00m ─── shuffling / just landed (clearance penalty, swing_ground penalty)
+  0.10m ─── half target (moderate clearance penalty)
+  0.20m ─── ★ TARGET (zero clearance penalty, max reward zone)
+  0.25m ─── CEILING (feet_height_max penalty starts)
+  0.30m ─── over-lifting (both clearance AND height_max penalty)
 
 Base height:
   0.45m ─── TERMINATED (fell — episode ends)
