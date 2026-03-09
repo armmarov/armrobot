@@ -931,8 +931,43 @@ All other params unchanged (num_learning_epochs=2, EngineAI reward weights).
 
 Note: tracking_sigma kept at 5.0 (it's a shape parameter, not a weight).
 
+**Results (KILLED at iter ~982 — BEST RUN since Run 13, but shuffling):**
+
+| Iter | Reward | Ep Length | Noise | Value Loss | vel_x | feet_air_time |
+|------|--------|-----------|-------|------------|-------|---------------|
+| 200 | 455 | 398 | 0.67 | 27 | ~0.1 | 0.03 |
+| 500 | 882 | 663 | 0.44 | 154 | ~0.2 | 0.07 |
+| 687 | 1,050 | 669 | 0.39 | 15 | 0.44-0.57 | 0.06 |
+| 800 | 1,283 | 790 | 0.36 | 38 | ~0.5 | 0.08 |
+| 982 | 1,395 | 814 | 0.33 | 29 | 0.45-0.76 | 0.00-0.08 |
+
+**Achievements:**
+- **Value loss STABLE**: max 701 in last 100 iters, only 51 spikes total (5.2%). /2.5 scale works!
+- **vel_x 0.45-0.76** — strongest sustained forward walking since Run 13
+- **ep_length 814** (~16s) — best survival ever
+- **low_speed = +121** — matching commanded speeds
+
+**Remaining issue:** feet_air_time = 0.00-0.08 (shuffling). /2.5 gait enforcement not strong enough to force foot lifting.
+
+---
+
+## Run 24 — Selective Gait Boost (Full EngineAI on 4 Gait Terms)
+
+**Date:** 2026-03-10
+
+**Changes from Run 23:**
+Selectively boost 4 gait-specific rewards to full EngineAI level while keeping everything else at /2.5. This targets shuffling without destabilizing total reward magnitude.
+
+| Term | Run 23 (/2.5) | **Run 24** | EngineAI |
+|------|--------------|-----------|----------|
+| rew_ref_joint_pos | 0.88 | **2.2** | 2.2 |
+| rew_feet_air_time | 0.60 | **1.5** | 1.5 |
+| rew_feet_contact_number | 0.56 | **1.4** | 1.4 |
+| rew_feet_clearance | -0.64 | **-1.6** | -1.6 |
+
+All other rewards unchanged from Run 23 (/2.5 scale).
+
 **Goals:**
-- Stable value loss (no spikes >1000) — proven stable at /5 scale
-- Proper alternating gait — gait enforcement 2x stronger than /5 scale
-- vel_x > 0.3, feet_air_time > 0.5
-- ep_length > 500
+- Stable value loss (watch for spikes — boosted terms add ~3.5 more reward magnitude)
+- feet_air_time > 1.0 (proper stepping gait)
+- vel_x > 0.3, ep_length > 500

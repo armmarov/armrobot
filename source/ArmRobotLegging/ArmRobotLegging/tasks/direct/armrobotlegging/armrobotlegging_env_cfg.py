@@ -113,25 +113,25 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     swing_penalty_end: float = -0.8             # relaxed at end (allows survival)
     swing_curriculum_steps: int = 144000        # anneal over ~3000 iters (3000 * 48 steps)
 
-    # ---------- reward scales (Run 23: EngineAI ratios / 2.5) ----------
-    # Runs 20-22 proved full EngineAI magnitudes cause 17-19K value loss spikes.
-    # Runs 14-19 (/5) had stable value loss but weak gait enforcement.
-    # Run 23: /2.5 = midpoint — preserves EngineAI ratios, 2x stronger than /5.
+    # ---------- reward scales (Run 24: /2.5 base + full EngineAI gait terms) ----------
+    # Run 23: /2.5 scale gave stable value loss + forward walking (vel_x 0.5+)
+    # but feet_air_time=0 (shuffling). Selectively boost 4 gait terms to full
+    # EngineAI level to force foot lifting, keep everything else at /2.5.
     #
-    # velocity tracking
+    # velocity tracking (/2.5)
     rew_tracking_lin_vel: float = 0.56       # EngineAI 1.4 / 2.5
     rew_tracking_ang_vel: float = 0.44       # EngineAI 1.1 / 2.5
     rew_tracking_sigma: float = 5.0          # shape param, not scaled
 
-    # gait quality
-    rew_ref_joint_pos: float = 0.88          # EngineAI 2.2 / 2.5 (2x stronger than /5's 0.44)
-    rew_feet_air_time: float = 0.60          # EngineAI 1.5 / 2.5 (2x stronger than /5's 0.30)
-    rew_feet_contact_number: float = 0.56    # EngineAI 1.4 / 2.5 (2x stronger than /5's 0.28)
-    rew_orientation: float = 0.40            # EngineAI 1.0 / 2.5
-    rew_base_height: float = 0.08            # EngineAI 0.2 / 2.5
-    rew_feet_clearance: float = -0.64        # EngineAI -1.6 / 2.5
-    rew_default_joint_pos: float = 0.32      # EngineAI 0.8 / 2.5 (2x stronger than /5's 0.16)
-    rew_feet_distance: float = 0.08          # EngineAI 0.2 / 2.5
+    # gait quality — 4 KEY TERMS at full EngineAI level to force stepping
+    rew_ref_joint_pos: float = 2.2           # Run 24: FULL EngineAI (was 0.88) — follow gait reference
+    rew_feet_air_time: float = 1.5           # Run 24: FULL EngineAI (was 0.60) — reward foot lifting
+    rew_feet_contact_number: float = 1.4     # Run 24: FULL EngineAI (was 0.56) — force alternating gait
+    rew_orientation: float = 0.40            # /2.5
+    rew_base_height: float = 0.08            # /2.5
+    rew_feet_clearance: float = -1.6         # Run 24: FULL EngineAI (was -0.64) — penalize shuffling
+    rew_default_joint_pos: float = 0.32      # /2.5
+    rew_feet_distance: float = 0.08          # /2.5
 
     # feet distance limits [m]
     min_feet_dist: float = 0.15
