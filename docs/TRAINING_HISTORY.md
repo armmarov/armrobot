@@ -1086,7 +1086,40 @@ All reward weights unchanged from Run 25.
    - 0.20 was wrong — EngineAI config uses 0.10m
    - max_feet_height: 0.25 → 0.15 (match)
 
+**Results (KILLED at iter 1323 — shuffling, air-time penalty too weak):**
+
+| Iter | Reward | Ep Length | Noise Std | Value Loss | vel_x | feet_air_time |
+|------|--------|-----------|-----------|------------|-------|---------------|
+| 100 | 384 | 260 | 0.84 | 30 | 0.14 | -0.48 |
+| 462 | 1307 | 824 | 0.60 | 134 | 0.49 | -1.95 |
+| 749 | 1552 | 846 | 0.51 | 661 | 0.39 | -0.22 |
+| 1036 | 1610 | 835 | 0.45 | 808 | 0.73 | -0.45 |
+| 1323 | 1760 | 867 | 0.41 | 104 | 0.72 | -0.73 |
+
+**Assessment:**
+- ✅ Air-time formula correct (consistently negative = penalizing shuffling)
+- ❌ Penalty too weak: feet_air_time = -0.14 to -2.4 vs total reward 1600+
+- At iter 1000: ref_joint_pos=807, contact_pattern=476, tracking=946 → ~2200 free reward
+- Air-time penalty was <0.2% of total — robot absorbs cost easily
+
+**Root cause:** Weight 1.5 with subtract formula gives ~-24 per episode vs +2200 from easy rewards. Need 10x stronger weight.
+
+---
+
+## Run 28 — Boost air-time weight 10x
+
+**Date:** 2026-03-10
+
+**Changes from Run 27:**
+- `rew_feet_air_time`: 1.5 → **15.0** (10x increase)
+  - At 1.5, penalty was -0.14 to -2.4 per episode (< 0.2% of total reward)
+  - At 15.0, penalty should be -1.4 to -24 per episode (~1.5% of total)
+  - Combined with subtract formula: each shuffle step costs (0.1-0.5) * 15 = -6.0
+  - Over ~40 landings per episode: -240 total (vs +2200 free rewards = ~11%)
+
+All other settings unchanged from Run 27 (contact_filt, accumulated heights, target 0.10m).
+
 **Goals:**
-- feet_air_time > 0.2 after iter 500 (critical test of air-time formula fix)
+- feet_air_time must become positive (robot discovers long steps > 0.5s)
 - vel_x > 0.3
 - Value loss < 1500

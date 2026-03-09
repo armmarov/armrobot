@@ -126,7 +126,7 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
 
     # gait quality — only 3 stepping enforcers boosted (NOT ref_joint_pos)
     rew_ref_joint_pos: float = 0.88          # Run 25: back to /2.5 (2.2 gave 800 free reward)
-    rew_feet_air_time: float = 1.5           # FULL EngineAI — directly rewards foot lifting
+    rew_feet_air_time: float = 15.0          # Run 28: 10x EngineAI — at 1.5 penalty was <0.2% of total reward
     rew_feet_contact_number: float = 1.4     # FULL EngineAI — forces alternating gait
     rew_orientation: float = 0.40            # /2.5
     rew_base_height: float = 0.08            # /2.5
