@@ -87,6 +87,15 @@ class ArmrobotleggingEnv(DirectRLEnv):
             )
             self._push_step_counter = 0
 
+        # --- curriculum: swing penalty annealing ---
+        self._global_step_counter = 0
+
+        # --- PD gains randomization ---
+        if self.cfg.pd_gains_rand:
+            # store original gains (will be populated after scene setup in first reset)
+            self._original_stiffness = None
+            self._original_damping = None
+
     # ================================================================
     # Scene
     # ================================================================
@@ -176,6 +185,16 @@ class ArmrobotleggingEnv(DirectRLEnv):
     # ================================================================
 
     def _get_rewards(self) -> torch.Tensor:
+        # increment global step counter for curriculum
+        self._global_step_counter += 1
+
+        # compute current swing penalty from curriculum
+        progress = min(1.0, self._global_step_counter / self.cfg.swing_curriculum_steps)
+        current_swing_penalty = (
+            self.cfg.swing_penalty_start
+            + progress * (self.cfg.swing_penalty_end - self.cfg.swing_penalty_start)
+        )
+
         # foot body state: positions [N, 2, 3] and velocities [N, 2, 6]
         foot_pos_w = self.robot.data.body_pos_w[:, self._foot_body_ids, :]
         foot_vel_w = self.robot.data.body_vel_w[:, self._foot_body_ids, :]
@@ -205,6 +224,7 @@ class ArmrobotleggingEnv(DirectRLEnv):
             reset_terminated=self.reset_terminated,
             device=self.device,
             num_envs=self.num_envs,
+            current_swing_penalty=current_swing_penalty,
         )
 
         # accumulate per-term episode sums for diagnostics
@@ -290,6 +310,10 @@ class ArmrobotleggingEnv(DirectRLEnv):
 
         # sample new velocity commands
         self._resample_commands(env_ids)
+
+        # --- PD gains randomization (EngineAI-style: ±20% per DOF per reset) ---
+        if self.cfg.pd_gains_rand:
+            self._randomize_pd_gains(env_ids)
 
     # ================================================================
     # Helpers — gait phase
@@ -437,6 +461,39 @@ class ArmrobotleggingEnv(DirectRLEnv):
         # write back to simulation
         self.robot.write_root_velocity_to_sim(vel)
 
+    # ================================================================
+    # Helpers — PD gains randomization
+    # ================================================================
+
+    def _randomize_pd_gains(self, env_ids):
+        """Randomize stiffness/damping per DOF per reset (EngineAI-style ±20%).
+
+        Stores original gains on first call, then applies random multipliers
+        for the reset envs only.
+        """
+        # lazy-init: capture original gains on first call
+        if self._original_stiffness is None:
+            self._original_stiffness = self.robot.data.joint_stiffness.clone()
+            self._original_damping = self.robot.data.joint_damping.clone()
+
+        n = len(env_ids)
+        num_joints = self._original_stiffness.shape[1]
+
+        # random multipliers per DOF
+        stiff_multi = torch.empty(n, num_joints, device=self.device).uniform_(
+            *self.cfg.stiffness_multi_range
+        )
+        damp_multi = torch.empty(n, num_joints, device=self.device).uniform_(
+            *self.cfg.damping_multi_range
+        )
+
+        # apply multiplied gains
+        new_stiffness = self._original_stiffness[env_ids] * stiff_multi
+        new_damping = self._original_damping[env_ids] * damp_multi
+
+        self.robot.write_joint_stiffness_to_sim(new_stiffness, env_ids=env_ids)
+        self.robot.write_joint_damping_to_sim(new_damping, env_ids=env_ids)
+
 
 # =====================================================================
 # Reward computation (standalone for clarity)
@@ -466,6 +523,7 @@ def compute_rewards(
     reset_terminated: torch.Tensor,
     device: torch.device,
     num_envs: int,
+    current_swing_penalty: float = None,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
 
     # --- 1. velocity tracking ---
@@ -498,7 +556,8 @@ def compute_rewards(
     swing_mask_penalty[:, 1] = (sin_phase > 0).float()   # right should swing
     # penalty = foot is on ground during swing phase
     swing_ground_violation = swing_mask_penalty * foot_contact.float()  # [N, 2]
-    rew_swing_ground = cfg.rew_swing_phase_ground * torch.sum(swing_ground_violation, dim=-1)
+    swing_scale = current_swing_penalty if current_swing_penalty is not None else cfg.rew_swing_phase_ground
+    rew_swing_ground = swing_scale * torch.sum(swing_ground_violation, dim=-1)
     # only when commanded to move
     rew_swing_ground *= (torch.norm(commands[:, :2], dim=1) > 0.1)
 

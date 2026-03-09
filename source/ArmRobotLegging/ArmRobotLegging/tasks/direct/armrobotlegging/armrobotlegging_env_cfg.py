@@ -86,13 +86,18 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     cmd_lin_vel_y_range: tuple = (-0.2, 0.2)    # [m/s] reduced lateral range
     cmd_ang_vel_z_range: tuple = (-0.5, 0.5)    # [rad/s] reduced yaw range
     cmd_resample_time_s: float = 8.0             # resample commands every N seconds
-    cmd_still_ratio: float = 0.0                 # no zero commands (was 0.1 — exploited by standing)
+    cmd_still_ratio: float = 0.1                 # Run 18: re-enable standing (10% zero commands)
 
     # ---------- domain randomization: push forces ----------
     push_robots: bool = True            # enable random pushes (velocity impulses)
     push_interval_s: float = 5.0        # push every N seconds (gentler — let robot learn stepping first)
     max_push_vel_xy: float = 0.5        # max linear velocity impulse [m/s] (halved from Run 13)
     max_push_ang_vel: float = 0.4       # max angular velocity impulse [rad/s] (halved from Run 13)
+
+    # ---------- domain randomization: PD gains ----------
+    pd_gains_rand: bool = True                    # Run 18: randomize stiffness/damping ±20%
+    stiffness_multi_range: tuple = (0.8, 1.2)     # multiplier range for stiffness
+    damping_multi_range: tuple = (0.8, 1.2)       # multiplier range for damping
 
     # ---------- termination ----------
     termination_height: float = 0.45    # reset if base z < this [m]
@@ -103,7 +108,12 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     # Previous value of 0.03m meant contact was NEVER detected (broken since Run 1).
     contact_height_threshold: float = 0.16  # [m] — foot z-height below this = contact
 
-    # ---------- reward scales (Run 17: balance stepping with survival) ----------
+    # ---------- curriculum: swing penalty annealing (Run 18) ----------
+    swing_penalty_start: float = -1.5           # aggressive at start (forces stepping)
+    swing_penalty_end: float = -0.8             # relaxed at end (allows survival)
+    swing_curriculum_steps: int = 144000        # anneal over ~3000 iters (3000 * 48 steps)
+
+    # ---------- reward scales (Run 18: curriculum swing + standing + PD rand) ----------
     # velocity tracking
     rew_tracking_lin_vel: float = 0.28       # was 1.4
     rew_tracking_ang_vel: float = 0.5        # was 0.22 — BOOSTED to fix circular walking
@@ -136,4 +146,4 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     rew_dof_vel: float = -2e-6               # was -1e-5
     rew_dof_acc: float = -1e-9               # was -5e-9
     rew_lat_vel: float = 0.06                # was 0.3
-    rew_swing_phase_ground: float = -0.8      # Run 17: -1.5→-0.8 (reduced — too aggressive caused instant falls)
+    rew_swing_phase_ground: float = -0.8      # Run 18: overridden by curriculum (start=-1.5, end=-0.8)

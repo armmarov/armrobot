@@ -96,14 +96,14 @@ flowchart TB
     subgraph DONES["_get_dones() — runs BEFORE rewards"]
         direction TB
         GP["_update_gait_phase()<br/>phase = (step × dt × dec / 0.8) % 1<br/>phase[still_commands] = 0 (freeze when standing)<br/>sin_phase = sin(2π × phase)<br/>ref_pos: hip_pitch(0/6) + knee(3/9) + ankle(4/10)<br/>amplitudes: 0.26/0.52/0.26 rad<br/>deadband: ref=0 when |sin|<0.05"]
-        FC["_update_foot_contact()<br/>contact = foot_z < 0.03m<br/>first_contact = contact & !last_contact<br/>air_time_on_contact = air_time × first_contact<br/>air_time reset on contact"]
-        CMD["_update_commands()<br/>Every 400 steps: resample vx, vy, yaw_rate<br/>10% chance zero command"]
+        FC["_update_foot_contact()<br/>contact = foot_z < 0.16m<br/>first_contact = contact & !last_contact<br/>air_time_on_contact = air_time × first_contact<br/>air_time reset on contact"]
+        CMD["_update_commands()<br/>Every 400 steps: resample vx, vy, yaw_rate<br/>10% zero commands (standing still)"]
         TERM["Termination check<br/>fell = base_z < 0.45m<br/>bad_contact = base on ground<br/>(legs-only URDF: knee/torso have no collision)"]
         GP --> FC --> CMD --> TERM
     end
 
     subgraph FILES3["Files & Parameters"]
-        F3["<b>armrobotlegging_env_cfg.py</b><br/>cycle_time = 0.8s<br/>target_joint_pos_scale = 0.26<br/>termination_height = 0.45<br/>contact_height_threshold = 0.03<br/>cmd_resample_time_s = 8.0<br/>cmd_still_ratio = 0.0"]
+        F3["<b>armrobotlegging_env_cfg.py</b><br/>cycle_time = 0.8s<br/>target_joint_pos_scale = 0.26<br/>termination_height = 0.45<br/>contact_height_threshold = 0.16<br/>cmd_resample_time_s = 8.0<br/>cmd_still_ratio = 0.1"]
     end
 ```
 
@@ -165,7 +165,7 @@ flowchart TB
             R17["(moved to positive rewards section)"]
             R18["(moved to positive rewards section)"]
             R19["dof_vel = -2e-6 × Σ(joint_vel²)<br/>Penalize joint velocities (Run 14: /5)"]
-            R_SPG["swing_phase_ground = -0.8 × Σ(swing_mask × contact)<br/>Penalize feet on ground during swing phase (Run 17: -1.5→-0.8)"]
+            R_SPG["swing_phase_ground = curriculum(-1.5→-0.8) × Σ(swing_mask × contact)<br/>Penalize feet on ground during swing phase (Run 17: -1.5→-0.8)"]
             R20["dof_acc = -1e-9 × Σ((Δvel/dt)²)<br/>Penalize joint accelerations (Run 14: /5)"]
             R21["(moved to positive rewards section)"]
         end
@@ -240,18 +240,18 @@ flowchart TB
 │  │    vy: [-0.2, 0.2]   │  └────────────────────────────────┘   │
 │  │    yaw: [-0.5, 0.5]│                                       │
 │  │    resample: 8s       │  ┌────────────────────────────────┐   │
-│  │    still: 0%         │  │  pm01.py (robot config)        │   │
+│  │    still: 10%         │  │  pm01.py (robot config)        │   │
 │  │                      │  │                                │   │
 │  │  REWARDS:             │  │  PD Gains:                     │   │
 │  │    lin_vel: 0.28       │  │    hip_pitch: Kp=70, Kd=7     │   │
-│  │    ang_vel: 0.22       │  │    knee: Kp=70, Kd=7          │   │
+│  │    ang_vel: 0.5       │  │    knee: Kp=70, Kd=7          │   │
 │  │    ref_pos: 0.44       │  │    ankle: Kp=20, Kd=0.2       │   │
 │  │    air_time: 0.8      │  │                                │   │
 │  │    contact: 0.28       │  │  Effort limits:                │   │
-│  │    orient: 0.2        │  │    hip: 164 Nm                 │   │
-│  │    height: 0.2        │  │    knee: 164 Nm                │   │
+│  │    orient: 0.4        │  │    hip: 164 Nm                 │   │
+│  │    height: 0.4        │  │    knee: 164 Nm                │   │
 │  │    vel_mis: 0.1       │  │    ankle: 52 Nm                │   │
-│  │    alive: 0.01        │  │                                │   │
+│  │    alive: 0.03        │  │                                │   │
 │  │    smooth: -0.0006     │  │  Init: 0.9m, knees bent        │   │
 │  │    energy: -2e-5    │  │  URDF: pm01_only_legs_simple_   │   │
 │  │        collision.urdf           │   │
@@ -259,7 +259,7 @@ flowchart TB
 │  │    default_pos: 0.16   │  │                                │   │
 │  │    feet_dist: 0.04     │  │                                │   │
 │  │    foot_slip: -0.02    │  │                                │   │
-│  │    term: -0.2         │  │                                │   │
+│  │    term: -0.5         │  │                                │   │
 │  │    track_hard: 0.1    │  │                                │   │
 │  │    low_speed: 0.3     │  │                                │   │
 │  │    dof_vel: -2e-6     │  │                                │   │
@@ -297,9 +297,9 @@ sequenceDiagram
 
     E->>E: _get_dones()<br/>├─ _update_gait_phase()<br/>├─ _update_foot_contact()<br/>├─ _update_commands()<br/>└─ check termination
 
-    E->>E: _get_rewards()<br/>compute 22 reward terms<br/>accumulate per-term episode sums
+    E->>E: _get_rewards()<br/>compute 22 reward terms<br/>curriculum swing penalty (-1.5→-0.8)<br/>accumulate per-term episode sums
 
-    E->>E: _reset_idx(fallen_envs)<br/>log per-term rewards to extras["log"]<br/>reset state + new commands
+    E->>E: _reset_idx(fallen_envs)<br/>log per-term rewards to extras["log"]<br/>reset state + new commands<br/>randomize PD gains ±20%
 
     E->>E: _get_observations()<br/>build 64-dim tensor
 
@@ -307,3 +307,139 @@ sequenceDiagram
 
     Note over P: After 48 steps: PPO update
 ```
+
+## Hyperparameter Reference
+
+### 1. Simulation & Timing (`armrobotlegging_env_cfg.py`)
+
+| Param | Value | Purpose |
+|-------|-------|---------|
+| `dt` | 1/200 (0.005s) | Physics timestep — how often PhysX solves. Smaller = more accurate but slower |
+| `decimation` | 4 | Physics steps per policy step. Policy runs at 200/4 = **50 Hz** |
+| `episode_length_s` | 20.0 | Max episode duration before timeout reset |
+| `num_envs` | 4096 | Parallel environments — more = faster data collection, better gradient estimates |
+| `env_spacing` | 2.5m | Distance between robot instances in the grid |
+
+### 2. Action & Control (`armrobotlegging_env_cfg.py` + `pm01.py`)
+
+| Param | Value | Purpose |
+|-------|-------|---------|
+| `action_space` | 12 | Number of leg joints the policy controls (6 per leg) |
+| `action_scale` | 0.5 rad | Maps policy output [-1,1] to joint position offset. Larger = bigger movements per action |
+| hip_pitch Kp/Kd | 70 / 7 | Stiffness/damping for hip forward-backward swing. High = stiff tracking |
+| hip_roll Kp/Kd | 50 / 5 | Stiffness/damping for hip lateral tilt |
+| hip_yaw Kp/Kd | 50 / 5 | Stiffness/damping for hip rotation |
+| knee Kp/Kd | 70 / 7 | Stiffness/damping for knee bend |
+| ankle Kp/Kd | 20 / 0.2 | Stiffness/damping for ankle. Very low — causes vibration issues |
+
+### 3. Gait Reference (`armrobotlegging_env_cfg.py`)
+
+| Param | Value | Purpose |
+|-------|-------|---------|
+| `cycle_time` | 0.8s | Full gait cycle duration (left swing + right swing). Matches EngineAI |
+| `target_joint_pos_scale` | 0.26 rad | Amplitude of sinusoidal gait reference for hip/ankle. Knee gets 2x (0.52 rad) |
+| `target_feet_height` | 0.08m | How high swing foot should lift. Lower = easier to balance |
+
+### 4. Velocity Commands (`armrobotlegging_env_cfg.py`)
+
+| Param | Value | Purpose |
+|-------|-------|---------|
+| `cmd_lin_vel_x_range` | (0.3, 1.0) m/s | Forward speed range. Min 0.3 prevents standing-still exploit |
+| `cmd_lin_vel_y_range` | (-0.2, 0.2) m/s | Lateral speed range. Small to simplify task |
+| `cmd_ang_vel_z_range` | (-0.5, 0.5) rad/s | Yaw rate range. Reduced to focus on straight walking |
+| `cmd_resample_time_s` | 8.0s | How often new random commands are sampled |
+| `cmd_still_ratio` | 0.1 | 10% of commands are zero (standing still). Robot must learn both walking and standing |
+
+### 5. Contact Detection (`armrobotlegging_env_cfg.py`)
+
+| Param | Value | Purpose |
+|-------|-------|---------|
+| `contact_height_threshold` | 0.16m | Foot body z-height below this = "on ground". Was 0.03m (broken) since ankle body origin is at 0.148m |
+| `foot_body_names` | link_ankle_roll_l/r | Which bodies to check for foot contact |
+
+### 6. Termination (`armrobotlegging_env_cfg.py`)
+
+| Param | Value | Purpose |
+|-------|-------|---------|
+| `termination_height` | 0.45m | Reset if robot base drops below this — robot has fallen |
+| `base_height_target` | 0.8132m | Nominal standing height — used by base_height reward |
+| `termination_contact_body_names` | link_base | Reset if these bodies touch the ground (torso fell) |
+
+### 7. Domain Randomization (`armrobotlegging_env_cfg.py`)
+
+| Param | Value | Purpose |
+|-------|-------|---------|
+| `push_robots` | True | Enable random velocity impulses to force reactive stepping |
+| `push_interval_s` | 5.0s | How often pushes occur |
+| `max_push_vel_xy` | 0.5 m/s | Max linear push magnitude |
+| `max_push_ang_vel` | 0.4 rad/s | Max angular push magnitude |
+| `pd_gains_rand` | True | Randomize PD gains per DOF per reset (Run 18) |
+| `stiffness_multi_range` | (0.8, 1.2) | Stiffness multiplier range (±20%) |
+| `damping_multi_range` | (0.8, 1.2) | Damping multiplier range (±20%) |
+
+### 8. Curriculum (`armrobotlegging_env_cfg.py`)
+
+| Param | Value | Purpose |
+|-------|-------|---------|
+| `swing_penalty_start` | -1.5 | Initial swing penalty — aggressive, forces foot lifting |
+| `swing_penalty_end` | -0.8 | Final swing penalty — relaxed, allows survival |
+| `swing_curriculum_steps` | 144,000 | Steps over which to anneal (linear). ~3000 training iterations |
+
+### 9. Rewards — Positive (encourage good behavior)
+
+| Param | Value | Formula | Purpose |
+|-------|-------|---------|---------|
+| `rew_tracking_lin_vel` | 0.28 | `w * exp(-error²/sigma)` | Match commanded forward/lateral velocity |
+| `rew_tracking_ang_vel` | 0.5 | `w * exp(-error²/sigma)` | Match commanded yaw rate. Boosted to fix circular walking |
+| `rew_tracking_sigma` | 2.5 | (used in above) | Sharpness of tracking reward. Lower = stricter |
+| `rew_ref_joint_pos` | 0.44 | `w * mean(exp(-2*diff²))` | Follow sinusoidal gait reference. Per-joint exp then average |
+| `rew_feet_air_time` | 0.8 | `w * sum(clamp(air,0,0.5) * first_contact)` | Reward foot landing after being in air |
+| `rew_feet_contact_number` | 0.28 | `w * mean(match)` | Reward correct stance/swing pattern matching gait phase |
+| `rew_orientation` | 0.4 | `w * exp(-roll_pitch_err*10)` | Stay upright (penalize body tilt) |
+| `rew_base_height` | 0.4 | `w * exp(-height_err*100)` | Maintain nominal standing height (0.8132m) |
+| `rew_vel_mismatch` | 0.1 | `w * 0.5*(low_z + low_xy_ang)` | Minimize parasitic vertical/angular motion |
+| `rew_alive` | 0.03 | `w * 1.0` | Constant survival bonus every step |
+| `rew_default_joint_pos` | 0.16 | `w * (exp(-hip_dev*100) - 0.01*norm)` | Keep hip pitch/roll near default pose |
+| `rew_feet_distance` | 0.04 | `w * exp(-deviation*100)` | Keep feet within [0.15m, 0.8m] apart |
+| `rew_track_vel_hard` | 0.1 | `w * (exp(-err*10) - 0.2*err)` | Sharp velocity tracking with linear penalty |
+| `rew_low_speed` | 0.3 | `w * discrete(-1/+2/-2)` | Punish too slow, reward good speed, punish wrong direction |
+| `rew_lat_vel` | 0.06 | `w * exp(-lat_err²*10)` | Track lateral velocity command |
+
+### 10. Rewards — Penalties (discourage bad behavior)
+
+| Param | Value | Formula | Purpose |
+|-------|-------|---------|---------|
+| `rew_action_smoothness` | -0.0006 | `w * (jerk + 2nd_order + mag)` | Prevent jerky/oscillating actions |
+| `rew_energy` | -0.00002 | `w * sum(action² * \|vel\|)` | Penalize energy waste |
+| `rew_feet_clearance` | -0.8 | `w * norm(target_h - actual_h)` | Penalize swing foot not lifting enough |
+| `rew_foot_slip` | -0.02 | `w * sum(sqrt(speed) * contact)` | Penalize foot sliding while on ground |
+| `rew_termination` | -0.5 | `w * fell` | One-time penalty on episode termination |
+| `rew_swing_phase_ground` | curriculum(-1.5→-0.8) | `w * sum(swing_mask * contact)` | Penalize foot on ground during swing phase |
+| `rew_dof_vel` | -2e-6 | `w * sum(vel²)` | Penalize joint velocities — discourages vibration |
+| `rew_dof_acc` | -1e-9 | `w * sum(acc²)` | Penalize joint accelerations — anti-vibration |
+| `min_feet_dist` | 0.15m | (in feet_distance) | Minimum allowed distance between feet |
+| `max_feet_dist` | 0.8m | (in feet_distance) | Maximum allowed distance between feet |
+
+### 11. PPO Algorithm (`rsl_rl_ppo_cfg.py`)
+
+| Param | Value | Purpose |
+|-------|-------|---------|
+| `actor_hidden_dims` | [512, 256, 128] | Actor network size — maps 64-dim obs to 12-dim action |
+| `critic_hidden_dims` | [768, 256, 128] | Critic network size — larger to better estimate value function |
+| `activation` | ELU | Activation function. Smooth, handles negative values |
+| `init_noise_std` | 1.0 | Initial exploration noise. Decays during training (0.1 = converged) |
+| `learning_rate` | 1e-5 | Adam optimizer LR. 1e-3/1e-4 were unstable |
+| `schedule` | adaptive | LR adjusts based on KL divergence vs `desired_kl` |
+| `desired_kl` | 0.01 | Target KL divergence — if too high, LR decreases; if too low, increases |
+| `gamma` | 0.994 | Discount factor. High = care about long-term rewards |
+| `lam` | 0.9 | GAE lambda. Bias-variance tradeoff for advantage estimation |
+| `clip_param` | 0.2 | PPO clipping — limits how much policy can change per update |
+| `entropy_coef` | 0.001 | Entropy bonus — encourages exploration. 0.005 was too high |
+| `value_loss_coef` | 1.0 | Weight of critic loss in total loss |
+| `num_learning_epochs` | 5 | How many times to reuse collected data per iteration |
+| `num_mini_batches` | 4 | Split data into 4 chunks per epoch (49,152 transitions each) |
+| `num_steps_per_env` | 48 | Policy steps collected per env per iteration |
+| `max_iterations` | 10000 | Total training iterations |
+| `save_interval` | 200 | Save checkpoint every N iterations |
+| `max_grad_norm` | 1.0 | Gradient clipping — prevents catastrophic updates |
+| `empirical_normalization` | True | Normalize observations using running mean/std |

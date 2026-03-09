@@ -645,3 +645,50 @@ All Run 12 reward params retained (sigma=2.5, low_speed=1.5, pushes ±1.0@4s, pe
 6. **rew_termination: -0.2 → -0.5** — penalize falling harder
 
 **Key insight:** Run 16 proved robot CAN step but falls in 1.8s. The -1.5 penalty forces too aggressive knee lifts, destabilizing the robot. By reducing penalty to -0.8 (still strong enough — Run 15 showed -0.4 was too weak) and boosting survival rewards, the robot should learn to take smaller, balanced steps.
+
+**Results (killed at iter ~2010/10000, converged to shuffling):**
+
+| Iter | Reward | Ep Length | Noise | vel_x | feet_air_time | swing_ground |
+|------|--------|-----------|-------|-------|---------------|--------------|
+| 10 | 44 | 62 | 0.98 | 0.76 | 0.001 | -47 |
+| 253 | 882 | 499 | 0.55 | 33 | 0.20 | -290 |
+| 518 | 1,226 | 741 | 0.37 | — | 0.304 | -474 |
+| 803 | 1,355 | 753 | 0.26 | — | 0.066 | -486 |
+| 1090 | 1,430 | 773 | 0.20 | — | 0.053 | -476 |
+| 1375 | 1,499 | 794 | 0.16 | — | 0.024 | -489 |
+| 2010 | 1,542 | 798 | 0.11 | — | 0.018 | -502 |
+
+**Visual Evaluation (model_800):**
+- **More natural movement** — legs move smoothly, good posture
+- **Cannot walk straight** — curves to one side (yaw drift still present)
+- **Left ankle vibrates/drags** — right ankle lifts naturally, left doesn't
+- **Regresses to shuffling** — initial stepping (air_time=0.304 at iter 518) disappears as robot finds shuffling exploit again
+
+**Conclusion:** Static penalty can't solve the stepping-vs-survival tradeoff. -0.8 starts strong (air_time peaks at 0.304) but robot eventually learns to shuffle with minimal penalty. Need curriculum approach: start aggressive (-1.5, forces stepping) then relax (-0.8, allows survival). Also need PD gains randomization to force robustness, especially for weak ankle (Kp=20, Kd=0.2).
+
+---
+
+## Run 18 — Curriculum Swing Penalty + Standing + PD Gains Randomization
+
+**Date:** 2026-03-09
+
+**Changes from Run 17:**
+1. **Curriculum swing penalty** — anneal `rew_swing_phase_ground` from -1.5 → -0.8 over ~3000 iterations (144,000 policy steps). Starts aggressive to force stepping, relaxes to allow survival. Linear interpolation based on global step counter.
+2. **Re-enable standing** — `cmd_still_ratio = 0.1` (10% zero commands). Robot must learn to stand still AND walk. Phase freezes when standing (matching EngineAI).
+3. **PD gains randomization** — EngineAI-style ±20% per DOF per episode reset. Stiffness × U(0.8, 1.2), damping × U(0.8, 1.2). Forces policy to be robust to actuator variations, especially important for ankle (Kp=20→16-24, Kd=0.2→0.16-0.24).
+
+**Config:**
+- swing_penalty_start: -1.5 (aggressive)
+- swing_penalty_end: -0.8 (relaxed)
+- swing_curriculum_steps: 144,000 (~3000 iterations × 48 steps)
+- cmd_still_ratio: 0.0 → 0.1
+- pd_gains_rand: True
+- stiffness_multi_range: (0.8, 1.2)
+- damping_multi_range: (0.8, 1.2)
+- All other rewards: same as Run 17
+
+**Goals:**
+- feet_air_time > 0.3 sustained (not just early peak)
+- Episode length > 400 (survive >8s)
+- Walking + standing support
+- Robust to actuator variation
