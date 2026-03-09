@@ -1223,7 +1223,52 @@ The /2.5 scaling preserved the absolute imbalance. EngineAI works because:
 - Penalty ratio: 77% (up from 36%) — much closer to balance
 - The norm formula is the key: at /2.5 scale, ref_joint_pos free reward drops from 0.36 to ~0.12
 
+**Results (KILLED at iter 1692 — shuffling forward, same as Runs 23-28):**
+
+| Iter | Reward | Ep Length | Noise Std | Value Loss | vel_x | feet_air_time |
+|------|--------|-----------|-----------|------------|-------|---------------|
+| 5 | 72 | 53 | 0.99 | 88 | 0.67 | -0.002 |
+| 200 | 673 | 367 | 0.74 | 19 | 0.06 | -0.001 |
+| 500 | 800 | 392 | 0.36 | 272 | 0.22 | -0.001 |
+| 800 | 1275 | 606 | 0.24 | 2 | 0.29 | -0.011 |
+| 1100 | 1412 | 637 | 0.20 | 31 | 0.45 | -0.051 |
+| 1400 | 1718 | 752 | 0.16 | 2 | 0.50 | -0.276 |
+| 1692 | 1613 | 705 | 0.14 | 3 | 0.43 | 0.0 |
+
+**Assessment:**
+- ✅ vel_x 0.43-0.50 (good forward velocity)
+- ❌ feet_air_time never positive — converged on shuffling (same as Runs 23-28)
+- Value loss spikes 2.5K-4.2K every ~5 iters (better than Run 29's 20K but still present)
+- noise_std 0.14 = fully converged, no recovery
+
+**Root cause investigation revealed:**
+The z-height contact detection (foot_z < 0.16m) is unreliable. Foot body origin at 0.148m means
+only 0.012m margin — shuffling feet at 0.15m stay "in contact", so no air-time penalty fires.
+EngineAI uses force-based contact (contact_forces[:, foot_indices, 2] > 5N).
+Also: EngineAI uses num_learning_epochs=2, not 5.
+
+---
+
+## Run 31 — Force-based contact detection + learning epochs=2
+
+**Date:** 2026-03-10
+
+**Changes from Run 30 (2 critical fixes):**
+
+1. **Contact detection: z-height → force-based (CRITICAL)**
+   - Old: `foot_z < 0.16m` — unreliable, 0.012m margin means shuffling stays "in contact"
+   - New: `contact_forces_z > 5.0N` (EngineAI method) — physics-aware, force-based
+   - Added IsaacLab `ContactSensor` with `track_air_time=True`
+   - This should fix the entire stepping reward signal chain (first_contact, air_time, contact_pattern)
+
+2. **PPO learning epochs: 5 → 2 (match EngineAI)**
+   - 5 epochs caused value loss spikes (2.5K-4.2K at /2.5 scale, 20K+ at full scale)
+   - EngineAI uses 2 epochs — fewer updates per batch = more stable value function
+
+All other settings unchanged from Run 30 (/2.5 weights, exp-of-norm, no alive, contact_filt).
+
 **Goals:**
-- vel_x > 0.3 (at minimum match previous /2.5 runs)
-- feet_air_time must become positive
-- Value loss < 500 (should be stable at /2.5 scale)
+- feet_air_time MUST become positive (this is the make-or-break metric)
+- vel_x > 0.3
+- Value loss < 200 (epochs=2 should eliminate spikes)
+- This run tests whether contact detection was the root cause of shuffling

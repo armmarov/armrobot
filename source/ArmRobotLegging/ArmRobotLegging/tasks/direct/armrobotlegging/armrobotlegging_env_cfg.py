@@ -4,6 +4,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg
 from isaaclab.envs import DirectRLEnvCfg
 from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.sensors import ContactSensorCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
@@ -103,10 +104,18 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     termination_height: float = 0.45    # reset if base z < this [m]
     base_height_target: float = 0.8132  # nominal standing height [m]
 
-    # ---------- contact thresholds ----------
-    # NOTE: link_ankle_roll body origin is ~0.148m above ground when standing flat.
-    # Previous value of 0.03m meant contact was NEVER detected (broken since Run 1).
-    contact_height_threshold: float = 0.16  # [m] — foot z-height below this = contact
+    # ---------- contact sensor (Run 31: force-based, replaces z-height) ----------
+    # EngineAI uses contact_forces[:, foot_indices, 2] > 5.0 N
+    # Z-height contact (threshold=0.16m) was unreliable: foot at 0.148m standing means
+    # only 0.012m margin. Shuffling feet at 0.15m stayed "in contact" — no air-time penalty.
+    contact_sensor: ContactSensorCfg = ContactSensorCfg(
+        prim_path="/World/envs/env_.*/Robot/.*",
+        history_length=3,
+        update_period=0.0,  # update every physics step
+        track_air_time=True,
+    )
+    contact_force_threshold: float = 5.0  # [N] — vertical force above this = contact (EngineAI value)
+    contact_height_threshold: float = 0.16  # [m] — kept for legacy, no longer used for foot contact
 
     # ---------- curriculum: swing penalty annealing (Run 18) ----------
     swing_penalty_start: float = -1.5           # aggressive at start (forces stepping)

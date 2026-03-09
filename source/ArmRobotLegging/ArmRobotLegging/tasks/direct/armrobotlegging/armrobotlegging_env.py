@@ -7,6 +7,7 @@ from collections.abc import Sequence
 import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
+from isaaclab.sensors import ContactSensor
 from isaaclab.utils.math import quat_rotate_inverse
 
 from .armrobotlegging_env_cfg import ArmrobotleggingEnvCfg
@@ -28,6 +29,12 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self._leg_joint_ids, _ = self.robot.find_joints(self.cfg.leg_joint_names)
         self._foot_body_ids, _ = self.robot.find_bodies(self.cfg.foot_body_names)
         self._termination_body_ids, _ = self.robot.find_bodies(
+            self.cfg.termination_contact_body_names
+        )
+
+        # --- contact sensor body index lookups ---
+        self._sensor_foot_ids, _ = self._contact_sensor.find_bodies(self.cfg.foot_body_names)
+        self._sensor_base_ids, _ = self._contact_sensor.find_bodies(
             self.cfg.termination_contact_body_names
         )
 
@@ -118,6 +125,10 @@ class ArmrobotleggingEnv(DirectRLEnv):
             self.scene.filter_collisions(global_prim_paths=[self.cfg.terrain.prim_path])
 
         self.scene.articulations["robot"] = self.robot
+
+        # contact sensor (force-based contact detection — replaces z-height method)
+        self._contact_sensor = ContactSensor(self.cfg.contact_sensor)
+        self.scene.sensors["contact_sensor"] = self._contact_sensor
 
         # lighting
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
@@ -259,10 +270,10 @@ class ArmrobotleggingEnv(DirectRLEnv):
         # --- fell: base too low ---
         fell = self.robot.data.root_pos_w[:, 2] < self.cfg.termination_height
 
-        # --- body contact: forbidden bodies touching ground ---
-        body_pos = self.robot.data.body_pos_w[:, self._termination_body_ids, :]  # [N, B, 3]
-        body_heights = body_pos[:, :, 2]  # [N, B]
-        bad_contact = torch.any(body_heights < self.cfg.contact_height_threshold, dim=-1)
+        # --- body contact: forbidden bodies touching ground (force-based) ---
+        net_forces = self._contact_sensor.data.net_forces_w  # [N, num_bodies, 3]
+        base_forces = torch.norm(net_forces[:, self._sensor_base_ids, :], dim=-1)  # [N, B]
+        bad_contact = torch.any(base_forces > self.cfg.contact_force_threshold, dim=-1)
 
         terminated = fell | bad_contact
         return terminated, time_out
@@ -383,10 +394,16 @@ class ArmrobotleggingEnv(DirectRLEnv):
     # ================================================================
 
     def _compute_foot_contact(self) -> torch.Tensor:
-        """Estimate foot contact from foot body z-position. Returns [N, 2] bool."""
-        foot_pos = self.robot.data.body_pos_w[:, self._foot_body_ids, :]  # [N, 2, 3]
-        foot_heights = foot_pos[:, :, 2]  # [N, 2]
-        return foot_heights < self.cfg.contact_height_threshold
+        """Detect foot contact from contact sensor forces. Returns [N, 2] bool.
+
+        Uses the z-component (vertical) of net contact forces from the physics engine.
+        This is more reliable than z-height: a shuffling foot at z=0.15m that barely
+        touches the ground produces negligible force and correctly registers as "not in contact".
+        EngineAI uses the same approach with a 5N threshold.
+        """
+        net_forces = self._contact_sensor.data.net_forces_w  # [N, num_bodies, 3]
+        foot_forces_z = net_forces[:, self._sensor_foot_ids, 2]  # [N, 2] — vertical force
+        return foot_forces_z > self.cfg.contact_force_threshold
 
     def _update_foot_contact(self):
         """Track foot air time and accumulated swing height for gait rewards."""

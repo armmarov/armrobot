@@ -23,7 +23,7 @@ class PM01WalkingPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         use_clipped_value_loss=True,
         clip_param=0.2,
         entropy_coef=0.001,
-        num_learning_epochs=5,  # Run 23: restore (proven stable)
+        num_learning_epochs=2,  # Run 31: match EngineAI (was 5, caused value loss spikes)
         num_mini_batches=4,
         learning_rate=1.0e-5,
         schedule="adaptive",
