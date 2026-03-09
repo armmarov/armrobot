@@ -1,135 +1,138 @@
-# Template for Isaac Lab Projects
+# PM01 Bipedal Walking — Isaac Lab RL
+
+Reinforcement learning project to teach the [PM01 humanoid robot](https://pollen-robotics.com/) to walk using NVIDIA Isaac Lab and RSL-RL (PPO).
 
 ## Overview
 
-This project/repository serves as a template for building projects or extensions based on Isaac Lab.
-It allows you to develop in an isolated environment, outside of the core Isaac Lab repository.
+This project trains a bipedal walking policy for the PM01 robot's lower body (12 DOF legs) using:
 
-**Key Features:**
+- **Isaac Lab** — GPU-accelerated parallel simulation (4096 envs)
+- **RSL-RL** — PPO implementation from RSL (Robotic Systems Lab, ETH Zurich)
+- **Direct RL workflow** — custom environment without manager abstractions
+- **EngineAI reference** — gait design and reward structure adapted from EngineAI's PM01 walking implementation
 
-- `Isolation` Work outside the core Isaac Lab repository, ensuring that your development efforts remain self-contained.
-- `Flexibility` This template is set up to allow your code to be run as an extension in Omniverse.
+The robot learns to:
+- Walk forward at commanded velocities (0.3–1.0 m/s)
+- Track lateral and yaw commands
+- Stand still when commanded
+- Maintain balance under external pushes
+- Follow a sinusoidal bipedal gait reference
 
-**Keywords:** extension, template, isaaclab
+## Project Structure
 
-## Installation
+```
+ArmRobotLegging/
+├── source/ArmRobotLegging/ArmRobotLegging/
+│   ├── tasks/direct/armrobotlegging/
+│   │   ├── armrobotlegging_env.py        # Environment implementation
+│   │   ├── armrobotlegging_env_cfg.py    # All hyperparameters & reward scales
+│   │   ├── agents/
+│   │   │   └── rsl_rl_ppo_cfg.py         # PPO algorithm config
+│   │   └── __init__.py                   # Gym registration
+│   └── robots/
+│       ├── pm01.py                       # Robot articulation config (PD gains, init pose)
+│       └── pm01_assets/urdf/             # URDF files
+├── docs/
+│   ├── TRAINING_FLOW.md                  # Architecture, step-by-step flow, hyperparameter reference
+│   ├── TRAINING_HISTORY.md               # All training runs, results, and lessons learned
+│   └── ENGINEAI_VS_ISAACLAB.md           # Gap analysis vs EngineAI reference implementation
+├── Makefile                              # Training/play commands
+├── CLAUDE.md                             # AI researcher standing orders
+└── logs/                                 # Training checkpoints (gitignored)
+```
 
-- Install Isaac Lab by following the [installation guide](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html).
-  We recommend using the conda or uv installation as it simplifies calling Python scripts from the terminal.
+## Key Design Decisions
 
-- Clone or copy this project/repository separately from the Isaac Lab installation (i.e. outside the `IsaacLab` directory):
+| Decision | Choice | Why |
+|----------|--------|-----|
+| Gait reference joints | hip_pitch + knee + ankle | hip_yaw caused 360 spinning without obs history |
+| Contact detection | Foot body z-height < 0.16m | Sensor-free; ankle body origin is 0.148m above ground |
+| Swing penalty | Curriculum -1.5 → -0.8 | Static penalty can't solve stepping-vs-survival tradeoff |
+| Commands | Forward-only (min 0.3 m/s) | Eliminates standing-still exploit that plagued 8 runs |
+| Domain randomization | Push forces + PD gains ±20% | Forces reactive stepping and actuator robustness |
 
-- Using a python interpreter that has Isaac Lab installed, install the library in editable mode using:
+## Quick Start
 
-    ```bash
-    # use 'PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-    python -m pip install -e source/ArmRobotLegging
+### Prerequisites
 
-- Verify that the extension is correctly installed by:
+- NVIDIA Isaac Lab (with Isaac Sim)
+- Docker (recommended) or local Isaac Lab install
 
-    - Listing the available tasks:
-
-        Note: It the task name changes, it may be necessary to update the search pattern `"Template-"`
-        (in the `scripts/list_envs.py` file) so that it can be listed.
-
-        ```bash
-        # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-        python scripts/list_envs.py
-        ```
-
-    - Running a task:
-
-        ```bash
-        # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-        python scripts/<RL_LIBRARY>/train.py --task=<TASK_NAME>
-        ```
-
-    - Running a task with dummy agents:
-
-        These include dummy agents that output zero or random agents. They are useful to ensure that the environments are configured correctly.
-
-        - Zero-action agent
-
-            ```bash
-            # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-            python scripts/zero_agent.py --task=<TASK_NAME>
-            ```
-        - Random-action agent
-
-            ```bash
-            # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-            python scripts/random_agent.py --task=<TASK_NAME>
-            ```
-
-### Set up IDE (Optional)
-
-To setup the IDE, please follow these instructions:
-
-- Run VSCode Tasks, by pressing `Ctrl+Shift+P`, selecting `Tasks: Run Task` and running the `setup_python_env` in the drop down menu.
-  When running this task, you will be prompted to add the absolute path to your Isaac Sim installation.
-
-If everything executes correctly, it should create a file .python.env in the `.vscode` directory.
-The file contains the python paths to all the extensions provided by Isaac Sim and Omniverse.
-This helps in indexing all the python modules for intelligent suggestions while writing code.
-
-### Setup as Omniverse Extension (Optional)
-
-We provide an example UI extension that will load upon enabling your extension defined in `source/ArmRobotLegging/ArmRobotLegging/ui_extension_example.py`.
-
-To enable your extension, follow these steps:
-
-1. **Add the search path of this project/repository** to the extension manager:
-    - Navigate to the extension manager using `Window` -> `Extensions`.
-    - Click on the **Hamburger Icon**, then go to `Settings`.
-    - In the `Extension Search Paths`, enter the absolute path to the `source` directory of this project/repository.
-    - If not already present, in the `Extension Search Paths`, enter the path that leads to Isaac Lab's extension directory directory (`IsaacLab/source`)
-    - Click on the **Hamburger Icon**, then click `Refresh`.
-
-2. **Search and enable your extension**:
-    - Find your extension under the `Third Party` category.
-    - Toggle it to enable your extension.
-
-## Code formatting
-
-We have a pre-commit template to automatically format your code.
-To install pre-commit:
+### Docker (recommended)
 
 ```bash
-pip install pre-commit
+# Start the Isaac Lab container
+docker compose up -d
+
+# Enter the container
+docker exec -it isaac-lab-base bash
+
+# Inside container:
+cd /workspace/armrobot/ArmRobotLegging
+make install
+make train-headless    # Train without GUI (~94K steps/s)
+make train             # Train with GUI (~30K steps/s)
 ```
 
-Then you can run pre-commit with:
+### Training
 
 ```bash
-pre-commit run --all-files
+# Full training (4096 envs, 10000 iterations, ~6 hours headless)
+make train-headless
+
+# Debug training (64 envs, for testing changes)
+make train-small
+
+# Resume from checkpoint
+make resume
 ```
 
-## Troubleshooting
+### Visualize a Trained Policy
 
-### Pylance Missing Indexing of Extensions
+```bash
+# Play latest checkpoint
+make play-latest
 
-In some VsCode versions, the indexing of part of the extensions is missing.
-In this case, add the path to your extension in `.vscode/settings.json` under the key `"python.analysis.extraPaths"`.
-
-```json
-{
-    "python.analysis.extraPaths": [
-        "<path-to-ext-repo>/source/ArmRobotLegging"
-    ]
-}
+# Play specific checkpoint
+make play CHECKPOINT=/path/to/model_XXXX.pt
 ```
 
-### Pylance Crash
+## Training Summary
 
-If you encounter a crash in `pylance`, it is probable that too many files are indexed and you run out of memory.
-A possible solution is to exclude some of omniverse packages that are not used in your project.
-To do so, modify `.vscode/settings.json` and comment out packages under the key `"python.analysis.extraPaths"`
-Some examples of packages that can likely be excluded are:
+| Run | Key Change | vel_x | feet_air_time | Ep Length | Outcome |
+|-----|-----------|-------|---------------|-----------|---------|
+| 1-12 | Various reward tuning | 0.0 | 0.0 | 999 | Standing still exploit |
+| 13 | Forward-only commands | 0.76 | 0.0 | 400 | First walking (shuffle) |
+| 14 | Rewards /5 | 0.60 | 0.0 | 794 | Stable shuffle, value loss fixed |
+| 15 | Contact fix + swing penalty -0.4 | 0.51 | 0.04 | 709 | Too weak penalty |
+| 16 | Swing penalty -1.5 | 0.73 | 0.62 | 88 | First stepping! Falls in 1.8s |
+| 17 | Swing -0.8 + survival boost | 0.72 | 0.02 | 798 | Regresses to shuffling |
+| 18 | Curriculum -1.5→-0.8 + PD rand | — | — | — | In progress |
 
-```json
-"<path-to-isaac-sim>/extscache/omni.anim.*"         // Animation packages
-"<path-to-isaac-sim>/extscache/omni.kit.*"          // Kit UI tools
-"<path-to-isaac-sim>/extscache/omni.graph.*"        // Graph UI tools
-"<path-to-isaac-sim>/extscache/omni.services.*"     // Services tools
-...
-```
+See [docs/TRAINING_HISTORY.md](docs/TRAINING_HISTORY.md) for full details on all 18 runs.
+
+## Reward Structure (22 terms)
+
+**Positive rewards** (clamped sum >= 0): velocity tracking, gait reference, feet air time, contact pattern, orientation, base height, alive bonus, and more.
+
+**Penalties** (always applied): action smoothness, energy, feet clearance, foot slip, termination, swing phase ground (curriculum), joint velocity/acceleration.
+
+See [docs/TRAINING_FLOW.md](docs/TRAINING_FLOW.md) for the complete hyperparameter reference with formulas and purposes.
+
+## Robot Specs
+
+- **Model:** PM01 (legs only, 12 DOF)
+- **Joints:** hip_pitch, hip_roll, hip_yaw, knee_pitch, ankle_pitch, ankle_roll (x2 legs)
+- **PD gains:** hip/knee Kp=50-70, ankle Kp=20 (low — causes vibration challenges)
+- **Standing height:** 0.8132m
+- **Init pose:** 0.9m, knees bent (-0.24/0.48/-0.24 rad hip/knee/ankle)
+
+## Documentation
+
+- **[TRAINING_FLOW.md](docs/TRAINING_FLOW.md)** — Complete architecture, execution order, all 55 hyperparameters with purposes
+- **[TRAINING_HISTORY.md](docs/TRAINING_HISTORY.md)** — Every training run, what changed, results, and lessons learned
+- **[ENGINEAI_VS_ISAACLAB.md](docs/ENGINEAI_VS_ISAACLAB.md)** — Feature gap analysis vs EngineAI reference
+
+## License
+
+BSD-3-Clause
