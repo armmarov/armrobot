@@ -1327,7 +1327,58 @@ All other settings unchanged from Run 31 (force-based contact, epochs=2, /2.5 we
 - Run 31 has WORKING force-based contact but WRONG quadruped formula → negative signal
 - Run 32 combines WORKING contact + CORRECT biped formula → should get POSITIVE signal
 
+**Results (COMPLETED — iter 9999/10000, 5h31m):**
+- ✅ FIRST WALKING POLICY IN 32 RUNS
+- Mean reward: 2000-2500 (peak 2533 at iter ~9453)
+- Episode length: 780-973 (peak 973 — 97% of max)
+- vel_x: 0.3-0.5 (stable forward walking)
+- feet_air_time: +5.8 to +9.4 (POSITIVE throughout — breakthrough confirmed)
+- noise_std: 0.07 (fully converged)
+- Value loss: 1-200 baseline, push spikes to 1329 (bounded, normal)
+
+**Visual evaluation:**
+- Robot walks forward with alternating steps
+- Upright posture maintained
+- Foot clearance LOW (shuffling more than stepping)
+- Slight lateral drift to the right
+- Verdict: "almost perfect" — needs higher foot clearance and stronger pushes
+
+**Model:** `logs/rsl_rl/pm01_walking/2026-03-10_06-39-39/model_9999.pt`
+
+---
+
+## Run 33 — Full EngineAI reward weights + stronger pushes
+
+**Date:** 2026-03-10
+
+**Changes from Run 32:**
+
+1. **Push settings: match EngineAI for resilience**
+   - `push_interval_s`: 5.0 → **15.0** (less frequent, allows longer episodes)
+   - `max_push_vel_xy`: 0.5 → **1.0** (2× stronger pushes)
+   - `max_push_ang_vel`: 0.4 → **0.6** (match EngineAI)
+   - Rationale: Run 32 pushes (0.5 m/s @ 5s) limited episode length to ~81% and were too
+     gentle. EngineAI uses 1.0 m/s @ 15s — stronger but less frequent. Should improve
+     resilience AND allow longer episodes.
+
+2. **Reward scales: /2.5 → full EngineAI weights**
+   - All 20 reward terms upgraded from /2.5 scaling to full EngineAI weights
+   - Run 29 failed with full weights because formulas were broken (quadruped air-time,
+     z-height contact). Now that biped fixes (Run 32) are proven, full weights are safe.
+   - Key changes: tracking_lin_vel 0.56→1.4, ref_joint_pos 0.88→2.2, feet_air_time 0.6→1.5,
+     feet_clearance -0.64→-1.6, action_smoothness -0.0012→-0.003, foot_slip -0.04→-0.1
+
+No formula changes — all reward formulas unchanged from Run 32.
+
+**Why this should work:**
+- Run 32 proved all formulas are correct (biped air-time, stance_mask, force contact)
+- /2.5 scaling was a safety measure from Run 30 (pre-biped-fix era)
+- Full weights give stronger learning signal, especially for feet_clearance (-1.6 vs -0.64)
+  which should encourage higher foot lifting (main visual issue from Run 32)
+- Stronger pushes + less frequent = better balance training + longer episodes
+
 **Goals:**
-- feet_air_time MUST become POSITIVE (now discoverable through exploration)
-- vel_x > 0.3
-- Value loss stable
+- Maintain walking (vel_x > 0.3, feet_air_time positive)
+- Improve foot clearance (higher foot lift during swing)
+- Episode length > 900 (freed from frequent push disruption)
+- Value loss stable (proven formulas should handle full weights)

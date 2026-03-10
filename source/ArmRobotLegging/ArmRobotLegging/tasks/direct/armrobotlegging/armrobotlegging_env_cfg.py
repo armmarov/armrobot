@@ -91,9 +91,9 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
 
     # ---------- domain randomization: push forces ----------
     push_robots: bool = True            # enable random pushes (velocity impulses)
-    push_interval_s: float = 5.0        # push every N seconds (gentler — let robot learn stepping first)
-    max_push_vel_xy: float = 0.5        # max linear velocity impulse [m/s] (halved from Run 13)
-    max_push_ang_vel: float = 0.4       # max angular velocity impulse [rad/s] (halved from Run 13)
+    push_interval_s: float = 15.0       # Run 33: match EngineAI (was 5.0 — too frequent, limited episode to ~81%)
+    max_push_vel_xy: float = 1.0        # Run 33: match EngineAI (was 0.5 — stronger pushes for resilience)
+    max_push_ang_vel: float = 0.6       # Run 33: match EngineAI (was 0.4)
 
     # ---------- domain randomization: PD gains ----------
     pd_gains_rand: bool = True                    # Run 18: randomize stiffness/damping ±20%
@@ -122,47 +122,45 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     swing_penalty_end: float = -0.8             # relaxed at end (allows survival)
     swing_curriculum_steps: int = 144000        # anneal over ~3000 iters (3000 * 48 steps)
 
-    # ---------- reward scales (Run 30: /2.5 scaled + all bug fixes) ----------
-    # Run 29 FAILED: full EngineAI weights caused value loss spikes (20-24K every ~5 iters)
-    # preventing coherent learning (vel_x=0.12, noise=0.27 at iter 1160 — converged on standing).
-    # Run 30: return to /2.5 scaling (stable value loss) BUT keep all bug fixes:
-    #   - exp-of-norm ref_joint_pos formula (less free reward)
-    #   - no alive bonus (removes pure free reward)
-    #   - contact_filt + accumulated heights + air-time subtract formula
-    # These fixes should change the reward balance even at /2.5 scale.
+    # ---------- reward scales (Run 33: full EngineAI weights) ----------
+    # Run 32 proved walking works with /2.5 scaling + biped fixes.
+    # Run 33: upgrade to full EngineAI weights — stronger learning signal now that
+    # core formulas (biped air-time, stance_mask, force-based contact) are correct.
+    # Run 29 failed with full weights because formulas were still broken (quadruped air-time,
+    # z-height contact). Now safe to use full weights.
     #
     # velocity tracking
-    rew_tracking_lin_vel: float = 0.56       # Run 30: EngineAI 1.4 / 2.5
-    rew_tracking_ang_vel: float = 0.44       # Run 30: EngineAI 1.1 / 2.5
-    rew_tracking_sigma: float = 5.0          # keep EngineAI value (not a weight)
+    rew_tracking_lin_vel: float = 1.4        # Run 33: full EngineAI weight
+    rew_tracking_ang_vel: float = 1.1        # Run 33: full EngineAI weight
+    rew_tracking_sigma: float = 5.0          # EngineAI value (not a weight)
 
-    # gait quality — /2.5 scaled
-    rew_ref_joint_pos: float = 0.88          # Run 30: EngineAI 2.2 / 2.5 (formula is exp-of-norm now)
-    rew_feet_air_time: float = 0.6           # Run 30: EngineAI 1.5 / 2.5
-    rew_feet_contact_number: float = 0.56    # Run 30: EngineAI 1.4 / 2.5
-    rew_orientation: float = 0.4             # Run 30: EngineAI 1.0 / 2.5
-    rew_base_height: float = 0.08            # Run 30: EngineAI 0.2 / 2.5
-    rew_feet_clearance: float = -0.64        # Run 30: EngineAI -1.6 / 2.5
-    rew_default_joint_pos: float = 0.32      # Run 30: EngineAI 0.8 / 2.5
-    rew_feet_distance: float = 0.08          # Run 30: EngineAI 0.2 / 2.5
+    # gait quality — full EngineAI weights
+    rew_ref_joint_pos: float = 2.2           # Run 33: full EngineAI weight
+    rew_feet_air_time: float = 1.5           # Run 33: full EngineAI weight
+    rew_feet_contact_number: float = 1.4     # Run 33: full EngineAI weight
+    rew_orientation: float = 1.0             # Run 33: full EngineAI weight
+    rew_base_height: float = 0.2             # Run 33: full EngineAI weight
+    rew_feet_clearance: float = -1.6         # Run 33: full EngineAI weight
+    rew_default_joint_pos: float = 0.8       # Run 33: full EngineAI weight
+    rew_feet_distance: float = 0.2           # Run 33: full EngineAI weight
 
     # feet distance limits [m]
     min_feet_dist: float = 0.15
     max_feet_dist: float = 0.8
     target_feet_height: float = 0.10         # EngineAI value
     max_feet_height: float = 0.15            # margin above target
-    rew_feet_height_max: float = -0.24       # Run 30: EngineAI -0.6 / 2.5
+    rew_feet_height_max: float = -0.6        # Run 33: full EngineAI weight
 
-    # penalties — /2.5 scaled
-    rew_action_smoothness: float = -0.0012   # Run 30: EngineAI -0.003 / 2.5
-    rew_energy: float = -0.00002             # keep (different formula than EngineAI)
-    rew_vel_mismatch: float = 0.2            # Run 30: EngineAI 0.5 / 2.5
-    rew_foot_slip: float = -0.04             # Run 30: EngineAI -0.1 / 2.5
-    rew_alive: float = 0.0                   # Run 30: REMOVED (not in EngineAI — pure free reward)
+    # penalties — full EngineAI weights
+    rew_action_smoothness: float = -0.003    # Run 33: full EngineAI weight
+    rew_energy: float = -0.0001              # Run 33: full EngineAI weight
+    rew_vel_mismatch: float = 0.5            # Run 33: full EngineAI weight
+    rew_foot_slip: float = -0.1              # Run 33: full EngineAI weight
+    rew_alive: float = 0.0                   # not in EngineAI
     rew_termination: float = -0.0            # EngineAI uses -0.0
-    rew_track_vel_hard: float = 0.2          # Run 30: EngineAI 0.5 / 2.5
-    rew_low_speed: float = 0.08              # Run 30: EngineAI 0.2 / 2.5
-    rew_dof_vel: float = -4e-6               # Run 30: EngineAI -1e-5 / 2.5
-    rew_dof_acc: float = -2e-9               # Run 30: EngineAI -5e-9 / 2.5
-    rew_lat_vel: float = 0.024               # Run 30: 0.06 / 2.5
-    rew_swing_phase_ground: float = 0.0      # Run 30: DISABLED (not in EngineAI)
+    rew_track_vel_hard: float = 0.5          # Run 33: full EngineAI weight
+    rew_low_speed: float = 0.2               # Run 33: full EngineAI weight
+    rew_dof_vel: float = -1e-5               # Run 33: full EngineAI weight
+    rew_dof_acc: float = -5e-9               # Run 33: full EngineAI weight
+    rew_lat_vel: float = 0.06                # Run 33: full weight (ours only)
+    rew_swing_phase_ground: float = 0.0      # DISABLED (not in EngineAI)
