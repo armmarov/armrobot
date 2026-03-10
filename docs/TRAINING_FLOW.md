@@ -388,35 +388,35 @@ sequenceDiagram
 
 | Param | Value | Formula | Purpose |
 |-------|-------|---------|---------|
-| `rew_tracking_lin_vel` | 1.4 | `w * exp(-error²/sigma)` | Match commanded forward/lateral velocity (Run 20: EngineAI) |
-| `rew_tracking_ang_vel` | 1.1 | `w * exp(-error²/sigma)` | Match commanded yaw rate (Run 20: EngineAI) |
-| `rew_tracking_sigma` | 5.0 | (used in above) | Sharpness of tracking reward (Run 20: EngineAI — more forgiving) |
-| `rew_ref_joint_pos` | 2.2 | `w * (exp(-2*‖diff‖) - 0.2*clamp(‖diff‖,0,0.5))` | Run 29: EngineAI exp-of-norm (less free reward) |
-| `rew_feet_air_time` | 1.5 | `w * sum(clamp(air_time, 0, 0.5) * first_contact)` | Run 32: EngineAI BIPED formula — rewards ANY step, capped at 0.5s (always positive) |
-| `rew_feet_contact_number` | 1.4 | `w * mean(match)` | Reward correct stance/swing pattern (Run 20: EngineAI) |
-| `rew_orientation` | 1.0 | `w * exp(-roll_pitch_err*10)` | Stay upright (Run 20: EngineAI) |
-| `rew_base_height` | 0.2 | `w * exp(-height_err*100)` | Maintain nominal standing height (Run 20: EngineAI) |
-| `rew_vel_mismatch` | 0.5 | `w * 0.5*(low_z + low_xy_ang)` | Minimize parasitic motion (Run 20: EngineAI) |
-| `rew_alive` | 0.0 | `w * 1.0` | Disabled (not in EngineAI — pure free reward) |
-| `rew_default_joint_pos` | 0.8 | `w * (exp(-hip_dev*100) - 0.01*norm)` | Keep hip pitch/roll near default (Run 20: EngineAI) |
-| `rew_feet_distance` | 0.2 | `w * exp(-deviation*100)` | Keep feet within [0.15m, 0.8m] apart (Run 20: EngineAI) |
-| `rew_track_vel_hard` | 0.5 | `w * (exp(-err*10) - 0.2*err)` | Sharp velocity tracking (Run 20: EngineAI) |
-| `rew_low_speed` | 0.2 | `w * discrete(-1/+2/-2)` | Punish too slow, reward good speed (Run 20: EngineAI) |
-| `rew_lat_vel` | 0.06 | `w * exp(-lat_err²*10)` | Track lateral velocity command |
+| `rew_tracking_lin_vel` | 0.93 | `w * exp(-error²/sigma)` | Run 34: EngineAI 1.4 / 1.5 |
+| `rew_tracking_ang_vel` | 0.73 | `w * exp(-error²/sigma)` | Run 34: EngineAI 1.1 / 1.5 |
+| `rew_tracking_sigma` | 5.0 | (used in above) | Sharpness of tracking reward (EngineAI value) |
+| `rew_ref_joint_pos` | 1.47 | `w * (exp(-2*‖diff‖) - 0.2*clamp(‖diff‖,0,0.5))` | Run 34: EngineAI 2.2 / 1.5 |
+| `rew_feet_air_time` | 1.0 | `w * sum(clamp(air_time, 0, 0.5) * first_contact)` | Run 34: EngineAI 1.5 / 1.5 (biped formula) |
+| `rew_feet_contact_number` | 0.93 | `w * mean(match)` | Run 34: EngineAI 1.4 / 1.5 |
+| `rew_orientation` | 0.67 | `w * exp(-roll_pitch_err*10)` | Run 34: EngineAI 1.0 / 1.5 |
+| `rew_base_height` | 0.13 | `w * exp(-height_err*100)` | Run 34: EngineAI 0.2 / 1.5 |
+| `rew_vel_mismatch` | 0.33 | `w * 0.5*(low_z + low_xy_ang)` | Run 34: EngineAI 0.5 / 1.5 |
+| `rew_alive` | 0.0 | `w * 1.0` | Disabled (not in EngineAI) |
+| `rew_default_joint_pos` | 0.53 | `w * (exp(-hip_dev*100) - 0.01*norm)` | Run 34: EngineAI 0.8 / 1.5 |
+| `rew_feet_distance` | 0.13 | `w * exp(-deviation*100)` | Run 34: EngineAI 0.2 / 1.5 |
+| `rew_track_vel_hard` | 0.33 | `w * (exp(-err*10) - 0.2*err)` | Run 34: EngineAI 0.5 / 1.5 |
+| `rew_low_speed` | 0.13 | `w * discrete(-1/+2/-2)` | Run 34: EngineAI 0.2 / 1.5 |
+| `rew_lat_vel` | 0.04 | `w * exp(-lat_err²*10)` | Run 34: 0.06 / 1.5 |
 
 ### 10. Rewards — Penalties (discourage bad behavior)
 
 | Param | Value | Formula | Purpose |
 |-------|-------|---------|---------|
-| `rew_action_smoothness` | -0.003 | `w * (jerk + 2nd_order + mag)` | Prevent jerky actions (Run 20: EngineAI) |
-| `rew_energy` | -0.0001 | `w * sum(action² * \|vel\|)` | Penalize energy waste (Run 33: full EngineAI) |
-| `rew_feet_clearance` | -1.6 | `w * norm(target_h - feet_heights)` | Penalize swing foot deviation from target 0.20m (Run 26: EngineAI-style accumulated height) |
-| `rew_feet_height_max` | -0.6 | `w * sum(clamp(h - 0.15, 0))` | Penalize swing foot above max height (Run 33: full EngineAI) |
-| `rew_foot_slip` | -0.1 | `w * sum(sqrt(speed) * contact)` | Penalize sliding on ground (Run 20: EngineAI) |
-| `rew_termination` | -0.0 | `w * fell` | Disabled (Run 20: EngineAI uses -0.0) |
+| `rew_action_smoothness` | -0.002 | `w * (jerk + 2nd_order + mag)` | Run 34: EngineAI -0.003 / 1.5 |
+| `rew_energy` | -0.000067 | `w * sum(action² * \|vel\|)` | Run 34: EngineAI -0.0001 / 1.5 |
+| `rew_feet_clearance` | -1.07 | `w * norm(target_h - feet_heights)` | Run 34: EngineAI -1.6 / 1.5 |
+| `rew_feet_height_max` | -0.4 | `w * sum(clamp(h - 0.15, 0))` | Run 34: EngineAI -0.6 / 1.5 |
+| `rew_foot_slip` | -0.067 | `w * sum(sqrt(speed) * contact)` | Run 34: EngineAI -0.1 / 1.5 |
+| `rew_termination` | -0.0 | `w * fell` | Disabled (EngineAI uses -0.0) |
 | `rew_swing_phase_ground` | 0.0 | `w * sum(swing_mask * contact)` | Disabled (not in EngineAI) |
-| `rew_dof_vel` | -1e-5 | `w * sum(vel²)` | Penalize joint velocities (Run 20: EngineAI) |
-| `rew_dof_acc` | -5e-9 | `w * sum(acc²)` | Penalize joint accelerations (Run 20: EngineAI) |
+| `rew_dof_vel` | -6.7e-6 | `w * sum(vel²)` | Run 34: EngineAI -1e-5 / 1.5 |
+| `rew_dof_acc` | -3.3e-9 | `w * sum(acc²)` | Run 34: EngineAI -5e-9 / 1.5 |
 | `min_feet_dist` | 0.15m | (in feet_distance) | Minimum allowed distance between feet |
 | `max_feet_dist` | 0.8m | (in feet_distance) | Maximum allowed distance between feet |
 

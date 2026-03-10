@@ -1377,8 +1377,54 @@ No formula changes — all reward formulas unchanged from Run 32.
   which should encourage higher foot lifting (main visual issue from Run 32)
 - Stronger pushes + less frequent = better balance training + longer episodes
 
+**Results (KILLED at iter 1192 — collapsed):**
+- ❌ vel_x collapsed: 0.14 (iter 586) → -0.05 (iter 888) → -0.10 (iter 1192)
+- ❌ Episode length crashed: 985 (iter 586) → 631 (iter 888) → 88 (iter 1192)
+- ❌ Value loss spiraled: 18 → 58,017 → 22,458 (vs Run 32's max 1.3K)
+- ❌ Reward crashed: 5212 → 3386 → 375
+- ✅ Push settings worked: episode length hit 985 at iter 586 (vs Run 32's max 973)
+- ✅ feet_air_time was positive early (peaked at 7.0 at iter 888)
+
+**Root cause:**
+Full EngineAI weights (2.5× jump from /2.5 scaling) were too aggressive. The stronger
+penalties (action_smoothness -0.003, foot_slip -0.1, energy -0.0001, feet_clearance -1.6)
+constrained the policy before it could discover forward walking. Value function destabilized
+(22K loss vs Run 32's 1.3K), causing cascading collapse. The robot converged on stepping
+in place, then falling.
+
+**Key lesson:** Can't jump from /2.5 to full weights in one step. Push settings (15s @ 1.0 m/s)
+are good — keep those. Need intermediate reward scaling.
+
+---
+
+## Run 34 — Intermediate reward weights (/1.5) + EngineAI pushes
+
+**Date:** 2026-03-10
+
+**Changes from Run 33:**
+
+1. **Reward scales: full → /1.5 (intermediate)**
+   - /2.5 (Run 32) worked but foot clearance was weak
+   - Full (Run 33) collapsed — too aggressive
+   - /1.5 gives ~67% more signal than Run 32 without the catastrophic penalty pressure
+   - Key changes: tracking_lin_vel 1.4→0.93, ref_joint_pos 2.2→1.47, feet_air_time 1.5→1.0,
+     feet_clearance -1.6→-1.07, action_smoothness -0.003→-0.002, foot_slip -0.1→-0.067
+
+2. **Push settings: keep from Run 33 (proven good)**
+   - `push_interval_s`: 15.0 (episode length hit 985 in Run 33)
+   - `max_push_vel_xy`: 1.0
+   - `max_push_ang_vel`: 0.6
+
+No formula changes — all reward formulas unchanged from Run 32/33.
+
+**Why this should work:**
+- /1.5 is halfway between /2.5 (worked) and full (failed)
+- Stronger feet_clearance (-1.07 vs -0.64) should improve foot lift without crushing policy
+- Push settings proven in Run 33 (985 episode length)
+- Same biped fixes that made Run 32 succeed
+
 **Goals:**
-- Maintain walking (vel_x > 0.3, feet_air_time positive)
-- Improve foot clearance (higher foot lift during swing)
-- Episode length > 900 (freed from frequent push disruption)
-- Value loss stable (proven formulas should handle full weights)
+- vel_x > 0.3 (MUST walk forward)
+- feet_air_time positive
+- Value loss < 500 (stable)
+- Better foot clearance than Run 32
