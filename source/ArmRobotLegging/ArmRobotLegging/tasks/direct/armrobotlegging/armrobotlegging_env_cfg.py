@@ -91,7 +91,7 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
 
     # ---------- domain randomization: push forces ----------
     push_robots: bool = True            # enable random pushes (velocity impulses)
-    push_interval_s: float = 15.0       # Run 33: match EngineAI (was 5.0 — too frequent, limited episode to ~81%)
+    push_interval_s: float = 8.0        # Run 35: EngineAI value (was 15.0 — more frequent = better reactive stepping)
     max_push_vel_xy: float = 1.0        # Run 33: match EngineAI (was 0.5 — stronger pushes for resilience)
     max_push_ang_vel: float = 0.6       # Run 33: match EngineAI (was 0.4)
 
@@ -101,7 +101,7 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     damping_multi_range: tuple = (0.8, 1.2)       # multiplier range for damping
 
     # ---------- termination ----------
-    termination_height: float = 0.45    # reset if base z < this [m]
+    termination_height: float = 0.65    # Run 35: tighter margin (was 0.45 — too lenient, robot falls 44% before reset)
     base_height_target: float = 0.8132  # nominal standing height [m]
 
     # ---------- contact sensor (Run 31: force-based, replaces z-height) ----------
@@ -122,25 +122,25 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     swing_penalty_end: float = -0.8             # relaxed at end (allows survival)
     swing_curriculum_steps: int = 144000        # anneal over ~3000 iters (3000 * 48 steps)
 
-    # ---------- reward scales (Run 34: EngineAI / 1.5 — intermediate) ----------
-    # Run 32: /2.5 worked (first walking) but weak foot clearance
-    # Run 33: full weights collapsed (value loss 22K, vel_x → -0.10)
-    # Run 34: /1.5 — 67% more signal than Run 32, without crushing policy
+    # ---------- reward scales (Run 35: stability-critical at full EngineAI, rest /1.5) ----------
+    # Run 34: /1.5 across the board — best run ever but still falls sometimes
+    # Run 35: selectively boost STABILITY rewards to full EngineAI to eliminate falling
+    # Strategy: only boost orientation, ref_joint_pos, vel_mismatch, track_vel_hard, low_speed
     #
-    # velocity tracking
-    rew_tracking_lin_vel: float = 0.93       # Run 34: EngineAI 1.4 / 1.5
-    rew_tracking_ang_vel: float = 0.73       # Run 34: EngineAI 1.1 / 1.5
+    # velocity tracking (keep /1.5)
+    rew_tracking_lin_vel: float = 0.93       # Run 34: EngineAI 1.4 / 1.5 (keep)
+    rew_tracking_ang_vel: float = 0.73       # Run 34: EngineAI 1.1 / 1.5 (keep)
     rew_tracking_sigma: float = 5.0          # EngineAI value (not a weight)
 
-    # gait quality — /1.5 scaled
-    rew_ref_joint_pos: float = 1.47          # Run 34: EngineAI 2.2 / 1.5
-    rew_feet_air_time: float = 1.0           # Run 34: EngineAI 1.5 / 1.5
-    rew_feet_contact_number: float = 0.93    # Run 34: EngineAI 1.4 / 1.5
-    rew_orientation: float = 0.67            # Run 34: EngineAI 1.0 / 1.5
-    rew_base_height: float = 0.13            # Run 34: EngineAI 0.2 / 1.5
-    rew_feet_clearance: float = -1.07        # Run 34: EngineAI -1.6 / 1.5
-    rew_default_joint_pos: float = 0.53      # Run 34: EngineAI 0.8 / 1.5
-    rew_feet_distance: float = 0.13          # Run 34: EngineAI 0.2 / 1.5
+    # gait quality — stability-critical boosted to full EngineAI
+    rew_ref_joint_pos: float = 2.2           # Run 35: FULL EngineAI (was 1.47) — tighter gait tracking = better balance
+    rew_feet_air_time: float = 1.0           # Run 34: EngineAI 1.5 / 1.5 (keep)
+    rew_feet_contact_number: float = 0.93    # Run 34: EngineAI 1.4 / 1.5 (keep)
+    rew_orientation: float = 1.0             # Run 35: FULL EngineAI (was 0.67) — stronger upright incentive
+    rew_base_height: float = 0.2             # Run 35: FULL EngineAI (was 0.13) — maintain standing height
+    rew_feet_clearance: float = -1.07        # Run 34: EngineAI -1.6 / 1.5 (keep)
+    rew_default_joint_pos: float = 0.53      # Run 34: EngineAI 0.8 / 1.5 (keep)
+    rew_feet_distance: float = 0.13          # Run 34: EngineAI 0.2 / 1.5 (keep)
 
     # feet distance limits [m]
     min_feet_dist: float = 0.15
@@ -149,16 +149,16 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     max_feet_height: float = 0.15            # margin above target
     rew_feet_height_max: float = -0.4        # Run 34: EngineAI -0.6 / 1.5
 
-    # penalties — /1.5 scaled
-    rew_action_smoothness: float = -0.002    # Run 34: EngineAI -0.003 / 1.5
-    rew_energy: float = -0.000067            # Run 34: EngineAI -0.0001 / 1.5
-    rew_vel_mismatch: float = 0.33           # Run 34: EngineAI 0.5 / 1.5
-    rew_foot_slip: float = -0.067            # Run 34: EngineAI -0.1 / 1.5
+    # penalties — stability-critical boosted, rest /1.5
+    rew_action_smoothness: float = -0.002    # Run 34: EngineAI -0.003 / 1.5 (keep)
+    rew_energy: float = -0.000067            # Run 34: EngineAI -0.0001 / 1.5 (keep)
+    rew_vel_mismatch: float = 0.5            # Run 35: FULL EngineAI (was 0.33) — penalize unwanted z-motion
+    rew_foot_slip: float = -0.067            # Run 34: EngineAI -0.1 / 1.5 (keep)
     rew_alive: float = 0.0                   # not in EngineAI
     rew_termination: float = -0.0            # EngineAI uses -0.0
-    rew_track_vel_hard: float = 0.33         # Run 34: EngineAI 0.5 / 1.5
-    rew_low_speed: float = 0.13              # Run 34: EngineAI 0.2 / 1.5
-    rew_dof_vel: float = -6.7e-6             # Run 34: EngineAI -1e-5 / 1.5
-    rew_dof_acc: float = -3.3e-9             # Run 34: EngineAI -5e-9 / 1.5
-    rew_lat_vel: float = 0.04                # Run 34: 0.06 / 1.5
+    rew_track_vel_hard: float = 0.5          # Run 35: FULL EngineAI (was 0.33) — force velocity tracking
+    rew_low_speed: float = 0.2               # Run 35: FULL EngineAI (was 0.13) — punish slowness
+    rew_dof_vel: float = -6.7e-6             # Run 34: EngineAI -1e-5 / 1.5 (keep)
+    rew_dof_acc: float = -3.3e-9             # Run 34: EngineAI -5e-9 / 1.5 (keep)
+    rew_lat_vel: float = 0.04                # Run 34: 0.06 / 1.5 (keep)
     rew_swing_phase_ground: float = 0.0      # DISABLED (not in EngineAI)

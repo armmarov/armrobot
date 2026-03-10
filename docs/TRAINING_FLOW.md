@@ -103,7 +103,7 @@ flowchart TB
     end
 
     subgraph FILES3["Files & Parameters"]
-        F3["<b>armrobotlegging_env_cfg.py</b><br/>cycle_time = 0.8s<br/>target_joint_pos_scale = 0.26<br/>termination_height = 0.45<br/>contact_height_threshold = 0.16<br/>cmd_resample_time_s = 8.0<br/>cmd_still_ratio = 0.1"]
+        F3["<b>armrobotlegging_env_cfg.py</b><br/>cycle_time = 0.8s<br/>target_joint_pos_scale = 0.26<br/>termination_height = 0.65<br/>contact_height_threshold = 0.16<br/>cmd_resample_time_s = 8.0<br/>cmd_still_ratio = 0.1"]
     end
 ```
 
@@ -360,7 +360,7 @@ sequenceDiagram
 
 | Param | Value | Purpose |
 |-------|-------|---------|
-| `termination_height` | 0.45m | Reset if robot base drops below this — robot has fallen |
+| `termination_height` | 0.65m | Reset if robot base drops below this — tighter margin for stability (Run 35) |
 | `base_height_target` | 0.8132m | Nominal standing height — used by base_height reward |
 | `termination_contact_body_names` | link_base | Reset if these bodies touch the ground (torso fell) |
 
@@ -369,7 +369,7 @@ sequenceDiagram
 | Param | Value | Purpose |
 |-------|-------|---------|
 | `push_robots` | True | Enable random velocity impulses to force reactive stepping |
-| `push_interval_s` | 15.0s | How often pushes occur (Run 33: match EngineAI) |
+| `push_interval_s` | 8.0s | How often pushes occur (Run 35: EngineAI value for more reactive stepping) |
 | `max_push_vel_xy` | 1.0 m/s | Max linear push magnitude (Run 33: match EngineAI) |
 | `max_push_ang_vel` | 0.6 rad/s | Max angular push magnitude (Run 33: match EngineAI) |
 | `pd_gains_rand` | True | Randomize PD gains per DOF per reset (Run 18) |
@@ -391,17 +391,17 @@ sequenceDiagram
 | `rew_tracking_lin_vel` | 0.93 | `w * exp(-error²/sigma)` | Run 34: EngineAI 1.4 / 1.5 |
 | `rew_tracking_ang_vel` | 0.73 | `w * exp(-error²/sigma)` | Run 34: EngineAI 1.1 / 1.5 |
 | `rew_tracking_sigma` | 5.0 | (used in above) | Sharpness of tracking reward (EngineAI value) |
-| `rew_ref_joint_pos` | 1.47 | `w * (exp(-2*‖diff‖) - 0.2*clamp(‖diff‖,0,0.5))` | Run 34: EngineAI 2.2 / 1.5 |
+| `rew_ref_joint_pos` | 2.2 | `w * (exp(-2*‖diff‖) - 0.2*clamp(‖diff‖,0,0.5))` | Run 35: FULL EngineAI (stability) |
 | `rew_feet_air_time` | 1.0 | `w * sum(clamp(air_time, 0, 0.5) * first_contact)` | Run 34: EngineAI 1.5 / 1.5 (biped formula) |
 | `rew_feet_contact_number` | 0.93 | `w * mean(match)` | Run 34: EngineAI 1.4 / 1.5 |
-| `rew_orientation` | 0.67 | `w * exp(-roll_pitch_err*10)` | Run 34: EngineAI 1.0 / 1.5 |
-| `rew_base_height` | 0.13 | `w * exp(-height_err*100)` | Run 34: EngineAI 0.2 / 1.5 |
-| `rew_vel_mismatch` | 0.33 | `w * 0.5*(low_z + low_xy_ang)` | Run 34: EngineAI 0.5 / 1.5 |
+| `rew_orientation` | 1.0 | `w * exp(-roll_pitch_err*10)` | Run 35: FULL EngineAI (stability) |
+| `rew_base_height` | 0.2 | `w * exp(-height_err*100)` | Run 35: FULL EngineAI (stability) |
+| `rew_vel_mismatch` | 0.5 | `w * 0.5*(low_z + low_xy_ang)` | Run 35: FULL EngineAI (stability) |
 | `rew_alive` | 0.0 | `w * 1.0` | Disabled (not in EngineAI) |
 | `rew_default_joint_pos` | 0.53 | `w * (exp(-hip_dev*100) - 0.01*norm)` | Run 34: EngineAI 0.8 / 1.5 |
 | `rew_feet_distance` | 0.13 | `w * exp(-deviation*100)` | Run 34: EngineAI 0.2 / 1.5 |
-| `rew_track_vel_hard` | 0.33 | `w * (exp(-err*10) - 0.2*err)` | Run 34: EngineAI 0.5 / 1.5 |
-| `rew_low_speed` | 0.13 | `w * discrete(-1/+2/-2)` | Run 34: EngineAI 0.2 / 1.5 |
+| `rew_track_vel_hard` | 0.5 | `w * (exp(-err*10) - 0.2*err)` | Run 35: FULL EngineAI (stability) |
+| `rew_low_speed` | 0.2 | `w * discrete(-1/+2/-2)` | Run 35: FULL EngineAI (stability) |
 | `rew_lat_vel` | 0.04 | `w * exp(-lat_err²*10)` | Run 34: 0.06 / 1.5 |
 
 ### 10. Rewards — Penalties (discourage bad behavior)

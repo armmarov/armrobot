@@ -1471,3 +1471,49 @@ training. EngineAI push settings (1.0 m/s @ 15s) made the policy more resilient 
 actually improving episode length (less frequent disruptions than 5s interval).
 
 **Next steps:** Visual evaluation — compare foot clearance to Run 32 video.
+
+---
+
+## Run 35 — Stability-focused: selective full EngineAI weights + tighter termination
+
+**Date:** 2026-03-10
+
+**Changes from Run 34:**
+
+1. **Termination height: 0.45 → 0.65m (tighter margin)**
+   - Run 34: robot could fall 44% of standing height (0.813m) before reset
+   - Run 35: only 0.163m margin — forces robot to learn balance recovery early
+   - Prevents catastrophic falls and bad habit formation
+
+2. **Push interval: 15.0 → 8.0s (more frequent)**
+   - EngineAI value — more reactive stepping practice
+   - Robot gets pushed more often, learns faster balance correction
+
+3. **Stability-critical rewards boosted to FULL EngineAI (rest stays /1.5):**
+   - `rew_orientation`: 0.67 → 1.0 (stronger upright incentive)
+   - `rew_ref_joint_pos`: 1.47 → 2.2 (tighter gait tracking = better balance)
+   - `rew_base_height`: 0.13 → 0.2 (maintain standing height)
+   - `rew_vel_mismatch`: 0.33 → 0.5 (penalize unwanted z-motion)
+   - `rew_track_vel_hard`: 0.33 → 0.5 (force velocity tracking)
+   - `rew_low_speed`: 0.13 → 0.2 (punish slowness)
+
+4. **Rewards kept at /1.5 (unchanged):**
+   - tracking_lin_vel (0.93), tracking_ang_vel (0.73)
+   - feet_air_time (1.0), feet_contact_number (0.93)
+   - feet_clearance (-1.07), default_joint_pos (0.53), feet_distance (0.13)
+   - action_smoothness (-0.002), energy (-0.000067), foot_slip (-0.067)
+   - dof_vel, dof_acc, lat_vel
+
+No formula changes — all reward formulas unchanged from Run 34.
+
+**Why this should work:**
+- Run 33 failed because ALL weights were boosted simultaneously → too much penalty pressure
+- Run 35 only boosts 6 stability-critical weights, keeps 13 others at proven /1.5
+- Tighter termination (0.65m) teaches recovery before catastrophic fall
+- More frequent pushes (8s) = more balance practice per episode
+
+**Goals:**
+- Zero falling during play (primary goal)
+- Maintain vel_x > 0.3
+- Maintain feet_air_time positive
+- Value loss < 500 (stable)
