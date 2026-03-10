@@ -1428,3 +1428,46 @@ No formula changes — all reward formulas unchanged from Run 32/33.
 - feet_air_time positive
 - Value loss < 500 (stable)
 - Better foot clearance than Run 32
+
+**Results: COMPLETED — BEST RUN EVER**
+
+- **Training time:** 5h39m (10000 iterations)
+- **Model:** `2026-03-10_14-13-27/model_9999.pt`
+- **Log:** `train_2026-03-10_14-13-13.log`
+
+**Final metrics (iter 9999):**
+- Mean reward: 4,290 (push-cycle 12 hit at very end)
+- Episode length: 986
+- vel_x: 0.58
+- Noise std: 0.05
+
+**Peak metrics (iter 9930, pre-final push):**
+- Mean reward: 4,361 (all-time record)
+- Episode length: 999 (maxed out)
+- feet_air_time: +16.2 (record was +16.94 at iter 9358)
+- vel_x: 0.45
+- ref_joint_pos: 531.0 (record was 719.7 at iter 9998)
+- Value loss: 17.2
+
+**Peak reward progression (10 consecutive records across push-cycle recoveries):**
+- 4161 → 4296 → 4321 → 4332 → 4333 → 4342 → 4353 → 4360 → 4361
+
+**Push resilience:**
+- 12 push-cycle disruptions survived (1.0 m/s @ 15s interval)
+- Each cycle: value loss spiked 20-30K, then recovered within ~280 iters
+- Robot became increasingly resilient — vel_x barely dropped during later pushes
+
+**Comparison with Run 32 (previous best):**
+| Metric | Run 32 | Run 34 | Improvement |
+|--------|--------|--------|-------------|
+| Peak reward | ~3,900 | 4,361 | +12% |
+| feet_air_time | ~5.0 | 16.94 | +239% |
+| Push resilience | 0.5 m/s | 1.0 m/s | 2x stronger |
+| Noise std (final) | ~0.10 | 0.05 | 2x more converged |
+
+**Key takeaway:** /1.5 reward scaling is the sweet spot. Stronger penalties (especially
+feet_clearance -1.07 vs -0.64) dramatically improved stepping behavior without destabilizing
+training. EngineAI push settings (1.0 m/s @ 15s) made the policy more resilient while
+actually improving episode length (less frequent disruptions than 5s interval).
+
+**Next steps:** Visual evaluation — compare foot clearance to Run 32 video.
