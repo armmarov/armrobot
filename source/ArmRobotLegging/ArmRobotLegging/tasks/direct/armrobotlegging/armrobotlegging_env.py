@@ -85,6 +85,14 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self._episode_base_vel_x_sum = torch.zeros(self.num_envs, device=self.device)
         self._episode_step_count = torch.zeros(self.num_envs, device=self.device)
 
+        # gait phase diagnostics (logged per episode)
+        self._episode_foot_height_l_sum = torch.zeros(self.num_envs, device=self.device)
+        self._episode_foot_height_r_sum = torch.zeros(self.num_envs, device=self.device)
+        self._episode_foot_force_l_sum = torch.zeros(self.num_envs, device=self.device)
+        self._episode_foot_force_r_sum = torch.zeros(self.num_envs, device=self.device)
+        self._episode_swing_count_l = torch.zeros(self.num_envs, device=self.device)
+        self._episode_swing_count_r = torch.zeros(self.num_envs, device=self.device)
+
         # cached tensors
         self._gravity_w = torch.tensor([0.0, 0.0, -1.0], device=self.device).unsqueeze(0)
 
@@ -252,6 +260,19 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self._episode_base_vel_x_sum += self.robot.data.root_lin_vel_b[:, 0]
         self._episode_step_count += 1
 
+        # accumulate gait phase diagnostics
+        foot_z = self.robot.data.body_pos_w[:, self._foot_body_ids, 2]  # [N, 2]
+        net_forces = self._contact_sensor.data.net_forces_w
+        foot_fz = net_forces[:, self._sensor_foot_ids, 2]  # [N, 2] vertical force
+        is_swing_l = (self.sin_phase < 0).float()   # left in swing
+        is_swing_r = (self.sin_phase >= 0).float()   # right in swing
+        self._episode_foot_height_l_sum += foot_z[:, 0] * is_swing_l
+        self._episode_foot_height_r_sum += foot_z[:, 1] * is_swing_r
+        self._episode_foot_force_l_sum += foot_fz[:, 0]
+        self._episode_foot_force_r_sum += foot_fz[:, 1]
+        self._episode_swing_count_l += is_swing_l
+        self._episode_swing_count_r += is_swing_r
+
         return total
 
     # ================================================================
@@ -297,6 +318,32 @@ class ArmrobotleggingEnv(DirectRLEnv):
             # log mean base velocity (key diagnostic: is the robot actually moving?)
             mean_vel_x = torch.mean(self._episode_base_vel_x_sum[env_ids] / steps)
             extras_log["Episode/mean_base_vel_x"] = mean_vel_x.item()
+
+            # gait phase diagnostics
+            swing_l = self._episode_swing_count_l[env_ids].clamp(min=1)
+            swing_r = self._episode_swing_count_r[env_ids].clamp(min=1)
+            # mean foot height during swing phase [m] — how high feet lift
+            extras_log["Episode/swing_foot_height_l"] = torch.mean(
+                self._episode_foot_height_l_sum[env_ids] / swing_l
+            ).item()
+            extras_log["Episode/swing_foot_height_r"] = torch.mean(
+                self._episode_foot_height_r_sum[env_ids] / swing_r
+            ).item()
+            # mean foot force [N] — overall average (stance + swing)
+            extras_log["Episode/mean_foot_force_l"] = torch.mean(
+                self._episode_foot_force_l_sum[env_ids] / steps
+            ).item()
+            extras_log["Episode/mean_foot_force_r"] = torch.mean(
+                self._episode_foot_force_r_sum[env_ids] / steps
+            ).item()
+            # swing ratio — fraction of episode spent in swing per foot (~0.5 ideal)
+            extras_log["Episode/swing_ratio_l"] = torch.mean(
+                self._episode_swing_count_l[env_ids] / steps
+            ).item()
+            extras_log["Episode/swing_ratio_r"] = torch.mean(
+                self._episode_swing_count_r[env_ids] / steps
+            ).item()
+
             self.extras["log"] = extras_log
 
             # reset episode accumulators
@@ -304,6 +351,12 @@ class ArmrobotleggingEnv(DirectRLEnv):
                 self._episode_reward_sums[name][env_ids] = 0.0
             self._episode_base_vel_x_sum[env_ids] = 0.0
             self._episode_step_count[env_ids] = 0.0
+            self._episode_foot_height_l_sum[env_ids] = 0.0
+            self._episode_foot_height_r_sum[env_ids] = 0.0
+            self._episode_foot_force_l_sum[env_ids] = 0.0
+            self._episode_foot_force_r_sum[env_ids] = 0.0
+            self._episode_swing_count_l[env_ids] = 0.0
+            self._episode_swing_count_r[env_ids] = 0.0
 
         # reset robot to default state
         joint_pos = self.robot.data.default_joint_pos[env_ids]
