@@ -1517,3 +1517,52 @@ No formula changes — all reward formulas unchanged from Run 34.
 - Maintain vel_x > 0.3
 - Maintain feet_air_time positive
 - Value loss < 500 (stable)
+
+**Results: KILLED at iter 1443 — STANDING STILL**
+
+- vel_x stuck at 0.03-0.07 from iter 228 to 1443 — never learned to walk
+- Robot optimized for standing (reward 3,372, ep_len 872) but vel_x = 0.03
+- ref_joint_pos at 2.2 was too dominant — reward ~993 for standing in default pose
+- Noise std dropped to 0.15 — policy converged on wrong behavior (standing)
+- tracking_lin_vel at 0.93 was too weak to overcome stability rewards
+
+**Key lesson:** ref_joint_pos at 2.2 rewards default pose matching, which competes
+with forward walking. Need stronger velocity tracking to counterbalance stability rewards.
+
+---
+
+## Run 36 — Velocity tracking at full EngineAI + stability fixes
+
+**Date:** 2026-03-10
+
+**Changes from Run 35:**
+
+1. **Velocity tracking boosted to FULL EngineAI:**
+   - `rew_tracking_lin_vel`: 0.93 → 1.4 (stronger forward drive)
+   - `rew_tracking_ang_vel`: 0.73 → 1.1 (match velocity tracking)
+
+2. **ref_joint_pos REVERTED to /1.5:**
+   - `rew_ref_joint_pos`: 2.2 → 1.47 (was too dominant, caused standing still)
+
+3. **Kept from Run 35 (stability):**
+   - `termination_height`: 0.65m (tighter margin — good)
+   - `push_interval_s`: 8.0s (more frequent pushes)
+   - `rew_orientation`: 1.0 (full EngineAI — upright)
+   - `rew_base_height`: 0.2 (full EngineAI — standing height)
+   - `rew_vel_mismatch`: 0.5 (full EngineAI — penalize z-motion)
+   - `rew_track_vel_hard`: 0.5 (full EngineAI — velocity tracking)
+   - `rew_low_speed`: 0.2 (full EngineAI — punish slowness)
+
+No formula changes — all reward formulas unchanged.
+
+**Why this should work:**
+- Run 35 proved stability rewards (orientation, base_height) don't break training
+- The problem was ref_joint_pos at 2.2 competing with forward walking
+- Full EngineAI velocity tracking (1.4) gives stronger forward drive signal
+- Combined with stability rewards, should walk forward AND stay upright
+
+**Goals:**
+- vel_x > 0.3 (MUST walk forward — Run 35 failed this)
+- Zero falling during play
+- feet_air_time positive
+- Value loss < 500

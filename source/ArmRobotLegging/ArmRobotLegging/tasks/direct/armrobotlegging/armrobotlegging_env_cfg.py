@@ -122,22 +122,22 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     swing_penalty_end: float = -0.8             # relaxed at end (allows survival)
     swing_curriculum_steps: int = 144000        # anneal over ~3000 iters (3000 * 48 steps)
 
-    # ---------- reward scales (Run 35: stability-critical at full EngineAI, rest /1.5) ----------
-    # Run 34: /1.5 across the board — best run ever but still falls sometimes
-    # Run 35: selectively boost STABILITY rewards to full EngineAI to eliminate falling
-    # Strategy: only boost orientation, ref_joint_pos, vel_mismatch, track_vel_hard, low_speed
+    # ---------- reward scales (Run 36: velocity tracking at full EngineAI + stability) ----------
+    # Run 35: ref_joint_pos at 2.2 caused STANDING STILL — robot stood but wouldn't walk
+    # Run 36: boost velocity tracking to full EngineAI, revert ref_joint_pos to /1.5
+    # Strategy: full EngineAI for velocity + orientation, /1.5 for gait reference
     #
-    # velocity tracking (keep /1.5)
-    rew_tracking_lin_vel: float = 0.93       # Run 34: EngineAI 1.4 / 1.5 (keep)
-    rew_tracking_ang_vel: float = 0.73       # Run 34: EngineAI 1.1 / 1.5 (keep)
+    # velocity tracking — FULL EngineAI (Run 36: boost to drive forward walking)
+    rew_tracking_lin_vel: float = 1.4        # Run 36: FULL EngineAI (was 0.93) — stronger forward drive
+    rew_tracking_ang_vel: float = 1.1        # Run 36: FULL EngineAI (was 0.73) — match velocity tracking
     rew_tracking_sigma: float = 5.0          # EngineAI value (not a weight)
 
-    # gait quality — stability-critical boosted to full EngineAI
-    rew_ref_joint_pos: float = 2.2           # Run 35: FULL EngineAI (was 1.47) — tighter gait tracking = better balance
+    # gait quality — ref_joint_pos reverted, orientation kept full
+    rew_ref_joint_pos: float = 1.47          # Run 36: REVERT to /1.5 (2.2 caused standing still in Run 35)
     rew_feet_air_time: float = 1.0           # Run 34: EngineAI 1.5 / 1.5 (keep)
     rew_feet_contact_number: float = 0.93    # Run 34: EngineAI 1.4 / 1.5 (keep)
-    rew_orientation: float = 1.0             # Run 35: FULL EngineAI (was 0.67) — stronger upright incentive
-    rew_base_height: float = 0.2             # Run 35: FULL EngineAI (was 0.13) — maintain standing height
+    rew_orientation: float = 1.0             # Run 35: FULL EngineAI — stronger upright incentive (keep)
+    rew_base_height: float = 0.2             # Run 35: FULL EngineAI — maintain standing height (keep)
     rew_feet_clearance: float = -1.07        # Run 34: EngineAI -1.6 / 1.5 (keep)
     rew_default_joint_pos: float = 0.53      # Run 34: EngineAI 0.8 / 1.5 (keep)
     rew_feet_distance: float = 0.13          # Run 34: EngineAI 0.2 / 1.5 (keep)

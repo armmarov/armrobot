@@ -388,10 +388,10 @@ sequenceDiagram
 
 | Param | Value | Formula | Purpose |
 |-------|-------|---------|---------|
-| `rew_tracking_lin_vel` | 0.93 | `w * exp(-error²/sigma)` | Run 34: EngineAI 1.4 / 1.5 |
-| `rew_tracking_ang_vel` | 0.73 | `w * exp(-error²/sigma)` | Run 34: EngineAI 1.1 / 1.5 |
+| `rew_tracking_lin_vel` | 1.4 | `w * exp(-error²/sigma)` | Run 36: FULL EngineAI (forward drive) |
+| `rew_tracking_ang_vel` | 1.1 | `w * exp(-error²/sigma)` | Run 36: FULL EngineAI |
 | `rew_tracking_sigma` | 5.0 | (used in above) | Sharpness of tracking reward (EngineAI value) |
-| `rew_ref_joint_pos` | 2.2 | `w * (exp(-2*‖diff‖) - 0.2*clamp(‖diff‖,0,0.5))` | Run 35: FULL EngineAI (stability) |
+| `rew_ref_joint_pos` | 1.47 | `w * (exp(-2*‖diff‖) - 0.2*clamp(‖diff‖,0,0.5))` | Run 36: reverted /1.5 (2.2 caused standing) |
 | `rew_feet_air_time` | 1.0 | `w * sum(clamp(air_time, 0, 0.5) * first_contact)` | Run 34: EngineAI 1.5 / 1.5 (biped formula) |
 | `rew_feet_contact_number` | 0.93 | `w * mean(match)` | Run 34: EngineAI 1.4 / 1.5 |
 | `rew_orientation` | 1.0 | `w * exp(-roll_pitch_err*10)` | Run 35: FULL EngineAI (stability) |
