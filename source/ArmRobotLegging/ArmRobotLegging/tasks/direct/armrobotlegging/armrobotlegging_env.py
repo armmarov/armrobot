@@ -28,6 +28,7 @@ class ArmrobotleggingEnv(DirectRLEnv):
         # --- joint / body index lookups ---
         self._leg_joint_ids, _ = self.robot.find_joints(self.cfg.leg_joint_names)
         self._foot_body_ids, _ = self.robot.find_bodies(self.cfg.foot_body_names)
+        self._knee_body_ids, _ = self.robot.find_bodies(self.cfg.knee_body_names)
         self._termination_body_ids, _ = self.robot.find_bodies(
             self.cfg.termination_contact_body_names
         )
@@ -49,6 +50,9 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.sin_phase = torch.zeros(self.num_envs, device=self.device)
         self.cos_phase = torch.zeros(self.num_envs, device=self.device)
         self.ref_joint_pos = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
+
+        # base velocity tracking (for base_acc reward)
+        self.last_base_lin_vel = torch.zeros(self.num_envs, 3, device=self.device)
 
         # foot contact tracking
         self.foot_air_time = torch.zeros(self.num_envs, 2, device=self.device)
@@ -75,7 +79,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
             "contact_pattern", "orientation", "base_height", "vel_mismatch",
             "action_smoothness", "energy", "alive", "feet_clearance",
             "default_joint_pos", "feet_distance", "foot_slip", "track_vel_hard",
-            "low_speed", "dof_vel", "dof_acc", "lat_vel", "feet_height_max", "swing_phase_ground", "termination",
+            "low_speed", "dof_vel", "dof_acc", "lat_vel", "feet_height_max", "swing_phase_ground",
+            "base_acc", "knee_distance", "force_balance", "termination",
         ]
         self._episode_reward_sums = {
             name: torch.zeros(self.num_envs, device=self.device)
@@ -108,6 +113,14 @@ class ArmrobotleggingEnv(DirectRLEnv):
 
         # --- curriculum: swing penalty annealing ---
         self._global_step_counter = 0
+
+        # --- Run 45: compact history buffer [N, history_len, obs_history_size] ---
+        # Stores last 3 frames of: ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) = 18
+        # Run 44 used full 64×15=960 — RSL-RL normalizer failed (zero-padded frames dragged mean)
+        self.obs_history = torch.zeros(
+            self.num_envs, self.cfg.obs_history_len, self.cfg.obs_history_size,
+            device=self.device
+        )
 
         # --- PD gains randomization ---
         if self.cfg.pd_gains_rand:
@@ -152,6 +165,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.actions = actions.clone().clamp(-1.0, 1.0)
         # store joint velocities for acceleration penalty
         self.last_joint_vel[:] = self.robot.data.joint_vel[:, self._leg_joint_ids]
+        # store base velocity for base_acc reward
+        self.last_base_lin_vel[:] = self.robot.data.root_lin_vel_b
         # apply random push forces (velocity impulses) at intervals
         self._apply_push_forces()
 
@@ -162,7 +177,7 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.robot.set_joint_position_target(targets, joint_ids=self._leg_joint_ids)
 
     # ================================================================
-    # Observations  [N, 64]
+    # Observations  [N, 118]  (Run 45: 64 current + 54 compact history)
     # ================================================================
 
     def _get_observations(self) -> dict:
@@ -185,7 +200,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
         # foot contact mask (binary)
         contact_mask = self._compute_foot_contact().float()
 
-        obs = torch.cat(
+        # current single-frame observation [N, 64]
+        current_obs = torch.cat(
             [
                 lin_vel_b,                                          # [N, 3]
                 ang_vel_b,                                          # [N, 3]
@@ -200,8 +216,20 @@ class ArmrobotleggingEnv(DirectRLEnv):
                 contact_mask,                                       # [N, 2]
             ],
             dim=-1,
-        )
-        return {"policy": obs}
+        )  # [N, 64]
+
+        # Run 45: compact history — only disturbance-relevant signals [N, 18]
+        # ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) = 18 dims
+        history_frame = torch.cat([ang_vel_b, projected_gravity, joint_pos_rel], dim=-1)  # [N, 18]
+
+        # roll history buffer: shift old frames back, insert current at front
+        # obs_history: [N, 3, 18] — index 0 = most recent
+        self.obs_history = torch.roll(self.obs_history, shifts=1, dims=1)
+        self.obs_history[:, 0, :] = history_frame
+
+        # concatenate current full obs + flattened compact history → [N, 118]
+        obs_stacked = torch.cat([current_obs, self.obs_history.view(self.num_envs, -1)], dim=-1)
+        return {"policy": obs_stacked}
 
     # ================================================================
     # Rewards
@@ -225,6 +253,13 @@ class ArmrobotleggingEnv(DirectRLEnv):
         foot_pos_w = self.robot.data.body_pos_w[:, self._foot_body_ids, :]
         foot_vel_w = self.robot.data.body_vel_w[:, self._foot_body_ids, :]
 
+        # knee body positions for knee_distance reward
+        knee_pos_w = self.robot.data.body_pos_w[:, self._knee_body_ids, :]
+
+        # foot contact forces for force-balance reward
+        net_forces = self._contact_sensor.data.net_forces_w
+        foot_forces_z = net_forces[:, self._sensor_foot_ids, 2]  # [N, 2] vertical force
+
         total, reward_terms = compute_rewards(
             cfg=self.cfg,
             dt=self._dt,
@@ -236,6 +271,7 @@ class ArmrobotleggingEnv(DirectRLEnv):
             - self.robot.data.default_joint_pos[:, self._leg_joint_ids],
             joint_vel=self.robot.data.joint_vel[:, self._leg_joint_ids],
             last_joint_vel=self.last_joint_vel,
+            last_base_lin_vel=self.last_base_lin_vel,
             actions=self.actions,
             prev_actions=self.prev_actions,
             prev_prev_actions=self.prev_prev_actions,
@@ -247,7 +283,9 @@ class ArmrobotleggingEnv(DirectRLEnv):
             air_time_on_contact=self.air_time_on_contact,
             foot_pos_w=foot_pos_w,
             foot_vel_w=foot_vel_w,
+            knee_pos_w=knee_pos_w,
             feet_heights=self.feet_heights,
+            foot_forces_z=foot_forces_z,
             reset_terminated=self.reset_terminated,
             device=self.device,
             num_envs=self.num_envs,
@@ -373,6 +411,7 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.prev_actions[env_ids] = 0.0
         self.prev_prev_actions[env_ids] = 0.0
         self.last_joint_vel[env_ids] = 0.0
+        self.last_base_lin_vel[env_ids] = 0.0
         self.foot_air_time[env_ids] = 0.0
         self.last_foot_contact[env_ids] = False
         self.first_contact[env_ids] = False
@@ -381,6 +420,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.last_foot_z[env_ids] = 0.0
         self.still_commands[env_ids] = False
         self._cmd_counter[env_ids] = 0
+        # Run 44: reset observation history for terminated envs (no stale frames from prior episode)
+        self.obs_history[env_ids] = 0.0
 
         # sample new velocity commands
         self._resample_commands(env_ids)
@@ -389,6 +430,10 @@ class ArmrobotleggingEnv(DirectRLEnv):
         if self.cfg.pd_gains_rand:
             self._randomize_pd_gains(env_ids)
 
+        # --- friction randomization (Run 41: randomize ground friction per reset) ---
+        if self.cfg.friction_rand:
+            self._randomize_friction(env_ids)
+
     # ================================================================
     # Helpers — gait phase
     # ================================================================
@@ -396,10 +441,10 @@ class ArmrobotleggingEnv(DirectRLEnv):
     def _update_gait_phase(self):
         """Compute gait phase and reference joint positions from episode time.
 
-        Hybrid approach: drives hip_pitch (idx 0/6) + knee_pitch (idx 3/9) +
-        ankle_pitch (idx 4/10) with coupled amplitudes (0.26/0.52/0.26 rad).
-        Uses hip_pitch instead of EngineAI's hip_yaw to avoid spinning
-        (hip_yaw caused 360° spinning in Run 4/8 without obs history + domain rand).
+        Run 40: switched to EngineAI's hip_yaw (idx 2/8) gait reference.
+        Drives hip_yaw + knee_pitch + ankle_pitch with coupled amplitudes.
+        hip_yaw creates natural knee-lifting motion during swing phase.
+        (hip_pitch was used in Runs 5-39, creating pendulum swing without knee bend.)
         Phase is frozen when commands are zero (standing still).
         """
         episode_time = self.episode_length_buf * self.cfg.sim.dt * self.cfg.decimation
@@ -410,9 +455,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.cos_phase = torch.cos(2.0 * math.pi * phase)
 
         # generate reference joint positions (sinusoidal bipedal gait)
-        # drives hip_pitch (idx 0/6), knee_pitch (idx 3/9), ankle_pitch (idx 4/10)
-        # hip_pitch for forward/backward leg swing (avoids spinning from hip_yaw)
-        # knee + ankle from EngineAI for proper stepping template
+        # drives hip_yaw (idx 2/8), knee_pitch (idx 3/9), ankle_pitch (idx 4/10)
+        # hip_yaw for leg rotation creating natural knee lift (matching EngineAI)
         scale = self.cfg.target_joint_pos_scale   # 0.26 rad
         scale2 = 2.0 * scale                      # 0.52 rad (knee bends at 2× hip)
         self.ref_joint_pos.zero_()
@@ -423,8 +467,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
 
         # left leg swings when sin_phase < 0 (zero out positive values)
         sin_pos_l[sin_pos_l > 0] = 0
-        # hip_pitch_l (idx 0): forward/backward leg swing
-        self.ref_joint_pos[:, 0] = sin_pos_l * scale
+        # hip_yaw_l (idx 2): leg rotation for knee lift
+        self.ref_joint_pos[:, 2] = sin_pos_l * scale
         # knee_pitch_l (idx 3): bend at double amplitude
         self.ref_joint_pos[:, 3] = -sin_pos_l * scale2
         # ankle_pitch_l (idx 4): compensate
@@ -432,8 +476,8 @@ class ArmrobotleggingEnv(DirectRLEnv):
 
         # right leg swings when sin_phase > 0 (zero out negative values)
         sin_pos_r[sin_pos_r < 0] = 0
-        # hip_pitch_r (idx 6): forward/backward leg swing
-        self.ref_joint_pos[:, 6] = -sin_pos_r * scale
+        # hip_yaw_r (idx 8): leg rotation for knee lift
+        self.ref_joint_pos[:, 8] = -sin_pos_r * scale
         # knee_pitch_r (idx 9)
         self.ref_joint_pos[:, 9] = sin_pos_r * scale2
         # ankle_pitch_r (idx 10)
@@ -594,6 +638,31 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.robot.write_joint_stiffness_to_sim(new_stiffness, env_ids=env_ids)
         self.robot.write_joint_damping_to_sim(new_damping, env_ids=env_ids)
 
+    # ================================================================
+    # Helpers — friction randomization
+    # ================================================================
+
+    def _randomize_friction(self, env_ids):
+        """Randomize ground friction per reset (Run 41: EngineAI-style).
+
+        Applies a random multiplier to both static and dynamic friction
+        for the robot's foot contact materials.
+        """
+        n = len(env_ids)
+        friction_multi = torch.empty(n, device=self.device).uniform_(
+            *self.cfg.friction_range
+        )
+        # Modify robot body material properties per env
+        # material_properties shape: [N, num_shapes, 3] = [static_friction, dynamic_friction, restitution]
+        env_ids_tensor = torch.tensor(env_ids, dtype=torch.long) if not isinstance(env_ids, torch.Tensor) else env_ids
+        foot_material = self.robot.root_physx_view.get_material_properties()
+        for i, env_id in enumerate(env_ids):
+            eid = int(env_id)
+            foot_material[eid, :, 0] = friction_multi[i].item()  # static friction
+            foot_material[eid, :, 1] = friction_multi[i].item()  # dynamic friction
+        indices = env_ids_tensor.to(dtype=torch.int32, device="cpu")
+        self.robot.root_physx_view.set_material_properties(foot_material, indices)
+
 
 # =====================================================================
 # Reward computation (standalone for clarity)
@@ -609,6 +678,7 @@ def compute_rewards(
     joint_pos_rel: torch.Tensor,
     joint_vel: torch.Tensor,
     last_joint_vel: torch.Tensor,
+    last_base_lin_vel: torch.Tensor,
     actions: torch.Tensor,
     prev_actions: torch.Tensor,
     prev_prev_actions: torch.Tensor,
@@ -620,7 +690,9 @@ def compute_rewards(
     air_time_on_contact: torch.Tensor,
     foot_pos_w: torch.Tensor,
     foot_vel_w: torch.Tensor,
+    knee_pos_w: torch.Tensor,
     feet_heights: torch.Tensor,
+    foot_forces_z: torch.Tensor,
     reset_terminated: torch.Tensor,
     device: torch.device,
     num_envs: int,
@@ -788,6 +860,29 @@ def compute_rewards(
     lat_vel_error = torch.square(commands[:, 1] - lin_vel_b[:, 1])
     rew_lat_vel = cfg.rew_lat_vel * torch.exp(-lat_vel_error * 10.0)
 
+    # --- 20. base acceleration reward (Run 39: EngineAI anti-wobble) ---
+    # Rewards smooth base motion: exp(-norm(base_acc) * 3)
+    base_acc = (lin_vel_b - last_base_lin_vel) / dt
+    base_acc_norm = torch.norm(base_acc, dim=1)
+    rew_base_acc = cfg.rew_base_acc * torch.exp(-base_acc_norm * 3.0)
+
+    # --- 21. knee distance reward (Run 39: EngineAI anti-wobble) ---
+    # Penalize knees being too close (prevents collision) or too far (unnatural gait)
+    knee_xy = knee_pos_w[:, :, :2]  # [N, 2, 2]
+    knee_dist = torch.norm(knee_xy[:, 0, :] - knee_xy[:, 1, :], dim=1)
+    knee_dist_error = torch.abs(knee_dist - cfg.target_knee_dist)
+    rew_knee_dist = cfg.rew_knee_distance * torch.exp(-knee_dist_error * 20.0)
+
+    # --- 22. force balance reward (Run 41: address L/R asymmetry) ---
+    # Reward equal left/right ground reaction forces.
+    # force_ratio = min(L,R) / (L+R) → 0.5 when perfectly balanced, 0 when one-sided.
+    force_l = foot_forces_z[:, 0].clamp(min=0.0)  # [N] left foot vertical force
+    force_r = foot_forces_z[:, 1].clamp(min=0.0)  # [N] right foot vertical force
+    force_sum = force_l + force_r + 1e-6  # avoid div-by-zero
+    force_ratio = torch.min(force_l, force_r) / force_sum
+    # exp reward centered on 0.5 (perfect balance)
+    rew_force_balance = cfg.rew_force_balance * torch.exp(-torch.square(force_ratio - 0.5) * 50.0)
+
     # --- sum all positive rewards, clamp >= 0, then add penalties ---
     total_positive = (
         rew_lin_vel
@@ -804,6 +899,9 @@ def compute_rewards(
         + rew_track_vel_hard
         + rew_low_speed
         + rew_lat_vel
+        + rew_base_acc
+        + rew_knee_dist
+        + rew_force_balance
     )
     total_positive = torch.clamp(total_positive, min=0.0)
 
@@ -837,6 +935,9 @@ def compute_rewards(
         "lat_vel": rew_lat_vel,
         "feet_height_max": rew_feet_height_max,
         "swing_phase_ground": rew_swing_ground,
+        "base_acc": rew_base_acc,
+        "knee_distance": rew_knee_dist,
+        "force_balance": rew_force_balance,
         "termination": rew_term,
     }
 

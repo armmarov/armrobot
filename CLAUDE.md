@@ -34,8 +34,16 @@
 ## Convergence Criteria
 
 - Kill training when reward plateaus for 500+ iterations with episode length near max (~1000)
+- **Early kill flag:** vel_x < 0.1 AND noise_std > 0.95 after iter 800 → policy stuck, kill immediately
 - Run visual evaluation via `make play-latest` after killing training
 - Record video evaluation and analyze frames if robot behavior is wrong
+
+## Observation History (Run 45+)
+
+- **Do NOT stack full obs × many frames** — RSL-RL empirical normalizer breaks with large zero-padded history
+- Use **compact history only**: `ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) = 18 dims`
+- Max **3 frames** of history → obs = 64 + 54 = 118 dims (safe for normalizer)
+- Run 44 failure: 960-dim history (64×15) → noise_std=0.99 for 898 iters → killed
 
 ## Code Review & Git
 

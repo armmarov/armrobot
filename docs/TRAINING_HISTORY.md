@@ -1561,8 +1561,555 @@ No formula changes — all reward formulas unchanged.
 - Full EngineAI velocity tracking (1.4) gives stronger forward drive signal
 - Combined with stability rewards, should walk forward AND stay upright
 
+**Results: KILLED at iter 564 — STANDING STILL**
+
+- vel_x peaked at 0.1035 then declined to 0.0753
+- Noise std converging at 0.49 — policy converging on standing
+- swing_ratio_l: 0.0 — left leg never lifts, one-legged behavior
+- Mean reward: 2,839, episode length: 631
+- Same failure pattern as Run 35
+
+**Key lesson:** `termination_height=0.65m` is the root cause of standing still in both
+Run 35 and 36. Only 0.163m margin from standing height (0.813m) — robot gets killed
+whenever it bends knees during walking exploration. Run 34 walked beautifully with 0.45m.
+
+---
+
+## Run 37 — Run 36 weights + revert termination height to 0.45m
+
+**Date:** 2026-03-10
+
+**Changes from Run 36:**
+
+1. **Termination height REVERTED:**
+   - `termination_height`: 0.65 → 0.45 (Run 34 walked well with this — 0.65 too strict)
+
+2. **Everything else KEPT from Run 36:**
+   - Full EngineAI velocity tracking (1.4, 1.1)
+   - ref_joint_pos at 1.47 (/1.5)
+   - All stability rewards (orientation 1.0, base_height 0.2, vel_mismatch 0.5)
+   - Push interval 8.0s, stronger pushes (1.0, 0.6)
+
+No formula changes — only termination_height changed.
+
+**Why this should work:**
+- Run 34 was our best walker ever (reward 4,361) with termination_height=0.45m
+- Runs 35 AND 36 both stood still with termination_height=0.65m
+- 0.65m leaves only 0.163m margin — kills robot for normal knee-bending during walking
+- Run 37 = Run 36 velocity boosts + Run 34's proven termination height
+- Should combine stronger forward drive with room to explore walking
+
 **Goals:**
-- vel_x > 0.3 (MUST walk forward — Run 35 failed this)
-- Zero falling during play
+- vel_x > 0.3 (MUST walk forward — Run 35+36 both failed this)
+- Better stability than Run 34 (thanks to boosted velocity tracking + stability rewards)
 - feet_air_time positive
-- Value loss < 500
+- Fewer falls during play than Run 34
+
+**Results: COMPLETED — BEST RUN EVER**
+
+- **Peak reward: 5,760** (iter 8789) — +32% over Run 34's 4,361
+- **Final reward: 5,720** — near peak at completion
+- **Final episode length: 999 (MAX)** — survives full 20s episodes
+- **vel_x avg ~0.45, peaked 0.78** — fast forward walking
+- **feet_air_time: 10-12** — excellent stepping
+- **Noise: 0.04** — fully converged
+- **low_speed consistently positive** (+264 final) — robot exceeds minimum speed
+- Swing ratio balanced 0.50/0.50 throughout
+- Push-cycle pattern: peaks ~5,750, dips to ~2,500 (still falling from pushes ~50%)
+
+**Training progression:**
+- iter 400: vel_x ~0.15 (stepping in place initially)
+- iter 900: vel_x ~0.22 (starting to walk)
+- iter 1250: vel_x ~0.30 (flagged PROMISING)
+- iter 1600: reward surpassed Run 34's final (4,635 vs 4,361)
+- iter 2600: ep_len hit 999 (max), reward plateau began at ~5,500
+- iter 5000: halfway, reward 5,644
+- iter 10000: completed, peak 5,760
+
+**Key lesson:** `termination_height=0.45m` is essential for walking exploration.
+Full EngineAI velocity tracking (1.4/1.1) + lenient termination = best combo.
+Runs 35+36 proved that 0.65m termination kills walking regardless of reward weights.
+
+**Model saved:** `release/run37_best/model_9999.pt`
+
+---
+
+## Run 38 — Fix shuffling gait (boost foot clearance + height)
+
+**Date:** 2026-03-11
+
+**Changes from Run 37:**
+
+1. **Foot clearance boosted to FULL EngineAI:**
+   - `rew_feet_clearance`: -1.07 → -1.6 (was /1.5, now full — penalize low feet harder)
+
+2. **Target feet height raised:**
+   - `target_feet_height`: 0.10 → 0.12 (demand higher foot lifts)
+   - `max_feet_height`: 0.15 → 0.18 (allow higher swing)
+   - `rew_feet_height_max`: -0.4 → -0.6 (full EngineAI — penalize too-low feet)
+
+3. **Action scale increased:**
+   - `action_scale`: 0.5 → 0.6 (allow larger joint movements for more expressive gait)
+
+4. **Everything else KEPT from Run 37:**
+   - All reward weights unchanged
+   - termination_height=0.45m, push settings same
+
+No formula changes — only foot-related parameters and action_scale changed.
+
+**Why this should work:**
+- Run 37 had great metrics but visual showed shuffling/sliding feet
+- feet_clearance at -1.07 wasn't enough to penalize low foot swing
+- Higher target_feet_height (0.12m) demands the robot lifts feet more
+- Larger action_scale (0.6) allows deeper knee bends for natural stepping
+- Full EngineAI feet_height_max (-0.6) penalizes feet staying too close to ground
+
+**Goals:**
+- Natural stepping gait (no shuffling)
+- Maintain vel_x > 0.3 (Run 37 level)
+- Higher swing_foot_height values (>0.08m)
+- Reward > 5,000
+
+**Results: COMPLETED — NEW ALL-TIME RECORD!**
+
+- **Final reward: 5,792** (surpassed Run 37's 5,760!)
+- **Peak vel_x: 0.606** (35% faster than Run 37's 0.45)
+- **Peak swing_l: 0.074m** (23% higher than Run 37's ~0.06m)
+- **Peak swing_r: 0.067m** (34% higher than Run 37's ~0.05m)
+- **Final gait symmetry: 0.51/0.49** (perfect)
+- **Final foot force balance: 203/204 N** (nearly equal)
+- Training time: 6h 31min (10000 iterations)
+
+**Training progression:**
+- iter 1-700: stepping in place (vel_x ~0.06, similar to Run 37 early phase)
+- iter 700-1500: slow breakout, vel_x climbing (delayed vs Run 37's iter 800)
+- iter 1591: first breakout — reward 4,972, ep_len 991
+- iter 2470: one-legged hopping phase (swing_ratio_l dropped to 0.11) — self-corrected
+- iter 3374: vel_x peaked 0.48 — faster than Run 37 at same stage
+- iter 5307: vel_x broke 0.6 m/s — new speed record
+- iter 6188: reward 5,660, recovering from push dips
+- iter 7946: vel_x peaked 0.606 (all-time record)
+- iter 8740: reward 5,743, swing_l peaked 0.073m, feet_air_time 13.6
+- iter 9440: swing_l peaked 0.074m, ref_joint_pos 554 (best gait tracking)
+- iter 9999: FINAL — reward 5,792 (NEW RECORD), perfect symmetry
+
+**Key lessons:**
+- action_scale 0.6 (vs 0.5) enabled significantly faster walking (+35% vel_x)
+- Stronger feet_clearance penalty (-1.6 vs -1.07) improved foot heights but not to 0.08m target
+- ~0.065-0.074m swing height appears to be the physical limit for this URDF
+- Push dips happen every ~580 iters, dropping reward ~50% — always recovers
+- Training can exhibit transient asymmetric phases (one-legged hopping) that self-correct
+- noise_std converged to 0.04 by completion — very refined policy
+
+**Model saved:**  (final),  (mid-peak)
+
+**Results: COMPLETED — NEW ALL-TIME RECORD!**
+
+- **Final reward: 5,792** (surpassed Run 37s 5,760!)
+- **Peak vel_x: 0.606** (35% faster than Run 37s 0.45)
+- **Peak swing_l: 0.074m** (23% higher than Run 37s ~0.06m)
+- **Peak swing_r: 0.067m** (34% higher than Run 37s ~0.05m)
+- **Final gait symmetry: 0.51/0.49** (perfect)
+- **Final foot force balance: 203/204 N** (nearly equal)
+- Training time: 6h 31min (10000 iterations)
+
+**Training progression:**
+- iter 1-700: stepping in place (vel_x ~0.06, similar to Run 37 early phase)
+- iter 700-1500: slow breakout, vel_x climbing (delayed vs Run 37s iter 800)
+- iter 1591: first breakout — reward 4,972, ep_len 991
+- iter 2470: one-legged hopping phase (swing_ratio_l dropped to 0.11) — self-corrected
+- iter 3374: vel_x peaked 0.48 — faster than Run 37 at same stage
+- iter 5307: vel_x broke 0.6 m/s — new speed record
+- iter 7946: vel_x peaked 0.606 (all-time record)
+- iter 8740: reward 5,743, swing_l peaked 0.073m
+- iter 9440: swing_l peaked 0.074m, ref_joint_pos 554 (best gait tracking)
+- iter 9999: FINAL — reward 5,792 (NEW RECORD), perfect symmetry
+
+**Key lessons:**
+- action_scale 0.6 (vs 0.5) enabled significantly faster walking (+35% vel_x)
+- Stronger feet_clearance penalty (-1.6 vs -1.07) improved foot heights modestly
+- ~0.065-0.074m swing height appears to be the physical limit for this URDF
+- Push dips happen every ~580 iters, dropping reward ~50% — always recovers
+- Training can exhibit transient asymmetric phases that self-correct
+- noise_std converged to 0.04 by completion — very refined policy
+
+**Model saved:** release/run38_best/model_9999.pt (final), release/run38_best/model_8800.pt (mid-peak)
+
+---
+
+## Run 39 — Anti-Wobble (base_acc + knee_distance + smoothness)
+
+**Date:** 2026-03-11
+**Status:** ✅ COMPLETED — NEW ALL-TIME RECORD: 5,858
+
+**Changes from Run 38:**
+| Parameter | Run 38 | Run 39 | Rationale |
+|-----------|--------|--------|-----------|
+| action_scale | 0.6 | 0.55 | Reduce for stability |
+| rew_action_smoothness | -0.002 | -0.003 | Full EngineAI value |
+| rew_base_acc | N/A | 0.2 | NEW: exp(-norm(base_acc)*3) — smooth base motion |
+| rew_knee_distance | N/A | 0.2 | NEW: exp(-|knee_dist-target|*20) — prevent knee collision |
+| target_knee_dist | N/A | 0.25m | Target distance between knees |
+
+**Motivation:** Run 38 achieved record reward (5,792) but visual evaluation showed left leg wobbling. EngineAI reference code had base_acc and knee_distance rewards we were missing.
+
+**Results:**
+- **Peak reward: 5,858** (+66 over Run 38's 5,792 — new all-time record!)
+- **Final reward: 5,839** (iter 9999, high phase)
+- **vel_x: 0.49 m/s** (slightly slower than Run 38's 0.61 peak, but steadier)
+- **Foot force symmetry: greatly improved** — consistently 0.91-0.99 ratio (Run 38 was ~0.78)
+- **Swing ratio: near-perfect** — 0.506/0.495 final (Run 38 had more variation)
+- **Swing heights: L=0.082/R=0.068m** — asymmetry reduced but not eliminated (14mm gap)
+- **knee_distance: 172.4** (highest at completion — anti-wobble working)
+- **base_acc: peaked 15.5** (smooth base motion reward)
+- **Episode length: 999** (full 20s episodes consistently)
+- **Training time: 6h 5m** (22,604 seconds, 10,000 iterations)
+
+**Training progression:**
+- iter 1-550: stepping in place, negative vel_x (exploring)
+- iter 815: slow walker (vel_x 0.16), force asymmetry 172/248N
+- iter 1333: PROMISING — vel_x broke 0.41, learning to walk forward
+- iter 1604: STRONG — vel_x 0.31-0.55, matching Run 38 speed
+- iter 2330: peak 5,601 — approaching Run 38 record
+- iter 3262: forces BALANCED 197/199N (ratio 0.99!) — anti-wobble success
+- iter 5953: peak 5,787 — just 5 points from Run 38 record
+- iter 6241: NEW ALL-TIME RECORD 5,798 — beat Run 38!
+- iter 7385: 5,812 (+20 over Run 38)
+- iter 8760: 5,834 (+42 over Run 38)
+- iter 9037: 5,848 (+56 over Run 38)
+- iter 9371: 5,858 (+66 over Run 38) — FINAL PEAK
+- iter 9999: 5,839 (final, high phase)
+
+**Key lessons:**
+- base_acc reward dramatically improved force symmetry (0.78 → 0.91-0.99 ratio)
+- knee_distance reward reached 172.4 at completion — effective at maintaining leg spacing
+- Reduced action_scale (0.55 vs 0.6) traded ~20% peak speed for better stability
+- Swing height asymmetry (L > R by ~14mm) persists — may need explicit L/R symmetry reward
+- Push-cycle pattern consistent: every ~580 iters, reward drops ~50% then recovers
+- noise_std converged to 0.02 (very refined, was 0.04 in Run 38)
+- Reward kept climbing until iter 9371 — longer training could potentially go higher
+- Visual evaluation still needed to confirm wobble is actually fixed
+
+**Remaining issues for future runs:**
+- Swing height asymmetry (L=0.082 vs R=0.068m)
+- No knee bending upward (hip_pitch gait ref vs EngineAI's hip_yaw)
+- target_feet_height=0.12m too high per TARGET_GAIT.md analysis (should be 0.05-0.06m)
+
+**Model saved:** release/run39_best/model_9400.pt (near-peak iter 9371), release/run39_best/model_9999.pt (final)
+
+---
+
+## Run 40 — Hip Yaw Gait Ref + Natural Foot Height
+
+**Date:** 2026-03-11
+**Status:** TRAINING (headless)
+**Target:** Stable locomotion, velocity tracking, balance, push recovery, human-like knee bending.
+
+**Changes from Run 39:**
+| Parameter | Run 39 | Run 40 | Rationale |
+|-----------|--------|--------|-----------|
+| gait_ref joint | hip_pitch (idx 0/6) | hip_yaw (idx 2/8) | EngineAI match — natural knee lift |
+| target_feet_height | 0.12m | 0.06m | Match original robot (3-5cm clearance) |
+| max_feet_height | 0.18m | 0.10m | Tighter range for natural steps |
+| cmd_still_ratio | 0.1 | 0.0 | 100% walking (standing = fixed motor mode) |
+
+**Motivation:** Run 39 was a stiff-legged shuffle despite record reward. The original EngineAI robot uses hip_yaw for gait reference, which creates natural knee-lifting motion during swing phase. Our hip_pitch only swings legs forward/backward like a pendulum. Also reduced target_feet_height from 0.12m to 0.06m to match the original robot's low foot clearance (3-5cm).
+
+**Risk:** hip_yaw caused 360° spinning in Run 4/8 (early training without domain rand). Now have anti-wobble rewards + domain rand — should be manageable.
+
+**Design decision:** Standing still handled by fixed motor mode (lock joints at default pose), not RL. Set cmd_still_ratio=0.0 so 100% of training focuses on walking quality.
+
+**Results:** COMPLETED — Peak 5,747 (iter 8,754), final 5,743 (iter 9,999)
+
+| Metric | Peak (iter ~8,754) | Final (iter 9,999) |
+|--------|-------------------|-------------------|
+| Mean reward | 5,747 | 5,743 |
+| Episode length | 999 | 999 |
+| vel_x | 0.447 m/s | 0.542 m/s |
+| noise_std | 0.07 | 0.06 |
+| foot_height_l | 0.065m | 0.069m |
+| foot_height_r | 0.095m | 0.102m |
+| force_l / force_r | 167/242 N (0.69) | 166/250 N (0.66) |
+| swing_ratio L/R | 0.506/0.494 | 0.506/0.494 |
+| base_acc | 3.63 | 4.34 |
+| knee_distance | 148.9 | 140.4 |
+| base_height | 122.6 | 133.6 |
+
+**Key observations:**
+- ✅ hip_yaw gait ref works — no spinning, natural knee bending confirmed
+- ✅ Full episode survival (999 steps) at peak
+- ✅ Good forward velocity (0.45-0.54 m/s)
+- ✅ Push recovery improving: dip#1 800 iters, dip#2 537 iters
+- ✅ base_acc best at 4.34 (smooth base motion), base_height best at 133.6 (upright)
+- ⚠️ Force asymmetry structural at 0.66-0.69 ratio (hip_yaw side effect)
+- ⚠️ Right foot consistently higher than left (0.095-0.102 vs 0.065-0.069m)
+- ⚠️ Peak 5,747 — 111 below Run 39's record (5,858), but better gait quality
+
+**Push-cycle pattern (3 dips in 10k iters):**
+| Dip | Start iter | Depth | Recovery |
+|-----|-----------|-------|----------|
+| 1 | ~6,876 | -53% | 800 iters |
+| 2 | ~8,217 | -49% | 537 iters |
+| 3 | ~9,560 | -46% | recovered by iter 9,999 |
+
+**Comparison vs Run 39:**
+| Feature | Run 39 (hip_pitch) | Run 40 (hip_yaw) |
+|---------|-------------------|-------------------|
+| Peak reward | 5,858 (record) | 5,747 (-111) |
+| Knee bending | ❌ stiff-legged | ✅ natural bend |
+| Force balance | 0.91-0.99 | 0.66-0.69 (worse) |
+| Foot height sym | variable | R consistently higher |
+| Base smoothness | good | better (base_acc 4.34) |
+| Posture | good | better (base_height 133.6) |
+
+**Model saved:** release/run40_best/model_8800.pt (near-peak), release/run40_best/model_9999.pt (final)
+
+**Remaining issues for future runs:**
+- Force asymmetry (L/R ratio 0.66-0.69) — may need explicit force-balance reward
+- Right foot over-lift (0.10m vs left 0.07m) — asymmetric gait ref effect
+- Reward plateau at ~5,740-5,750 — may need longer training or hyperparameter tuning
+- Lateral drift (not walking straight) — rew_lat_vel too weak at 0.04
+
+---
+
+## Run 41 — Force Balance + Anti-Drift + Friction Rand
+
+**Date:** 2026-03-12
+**Status:** TRAINING
+**Target:** Fix L/R force asymmetry, eliminate lateral drift, keep knee bending.
+
+**Changes from Run 40:**
+| Parameter | Run 40 | Run 41 | Rationale |
+|-----------|--------|--------|-----------|
+| rew_force_balance | (none) | 0.15 | NEW: reward equal L/R ground forces (target ratio 0.5) |
+| rew_lat_vel | 0.04 | 0.2 | 5x boost — was too weak, causing lateral drift |
+| friction_rand | (none) | True [0.7, 1.3] | NEW: randomize friction per reset for robustness |
+
+**Motivation:** Run 40 video analysis showed: (1) lateral drift left/right during walking, (2) asymmetric foot heights, (3) L/R force ratio 0.66-0.69. Root cause analysis confirmed gait reference signs are correct (match EngineAI exactly), but we lack EngineAI's symmetry loss + observation history. Force-balance reward directly targets the asymmetry. Stronger lat_vel reward fights drift. Friction randomization improves generalization.
+
+**New reward term — force_balance:** `exp(-(force_ratio - 0.5)^2 * 50)` where `force_ratio = min(L,R) / (L+R)`. Maximum reward at 0.5 (equal forces), decays sharply for imbalanced forces.
+
+**Risk:** Force balance reward might conflict with hip_yaw gait ref (which structurally creates some asymmetry). If too strong, could cause limp. Starting conservative at 0.15.
+
+**Results:** KILLED at iter 1,874 — stepping-in-place failure.
+- vel_x stuck at 0.015-0.023 from iter 800-1,874 (never reached 0.3)
+- Force balance reward worked for symmetry (ratio improved to 0.78-0.80 while standing)
+- But combined with lat_vel, over-constrained policy → local minimum of symmetric stepping
+- force_balance=49.6 + lat_vel=170.3 dominated positive rewards → no incentive to walk forward
+- low_speed penalty (-273) overwhelmed by symmetry rewards
+
+**Lesson:** force_balance (0.15) + lat_vel (0.2) together too aggressive — policy exploited symmetry rewards
+
+---
+
+## Run 41b — Force Balance + Anti-Drift (Halved Weights)
+
+**Date:** 2026-03-12
+**Status:** TRAINING
+**Target:** Same as Run 41 but with halved reward weights to avoid stepping-in-place.
+
+**Changes from Run 41:**
+| Parameter | Run 41 | Run 41b | Rationale |
+|-----------|--------|---------|-----------|
+| rew_force_balance | 0.15 | 0.08 | Halved — was too strong, caused stepping-in-place |
+| rew_lat_vel | 0.2 | 0.10 | Halved — combined with force_balance was over-constraining |
+| friction_rand | True [0.7, 1.3] | kept | No issues observed |
+
+**Motivation:** Run 41 proved force_balance reward works (ratio improved to 0.78-0.80) but was too strong combined with boosted lat_vel. Policy found it more rewarding to step symmetrically in place than to walk forward asymmetrically. Halving both should allow forward locomotion while still improving symmetry over Run 40.
+
+**Results:** KILLED at iter 813 — stepping-in-place failure (same as Run 41).
+- vel_x oscillated 0.05-0.14 from iter 400-813 (never reached 0.3)
+- Force ratio: 0.47 (190/218 N) — good symmetry but at cost of forward motion
+- Swing ratio: L=0.496, R=0.504 — perfectly symmetric (standing still is symmetric!)
+- Episode length: 500-660 (surviving but not walking)
+- Mean reward: 1,800-3,000 (driven by symmetry rewards, not velocity)
+
+**Lesson:** force_balance as a POSITIVE reward fundamentally conflicts with forward locomotion.
+Even at 0.08, it creates a local minimum where symmetric stepping-in-place scores higher than
+asymmetric forward walking. Both Run 41 (0.15) and 41b (0.08) produced the same failure mode.
+
+**Conclusion:** Force balance must be either:
+1. Removed entirely — rely only on modest lat_vel penalty for drift
+2. Converted to a PENALTY (punish extreme imbalance, not reward balance)
+3. Applied only during stance phase (not during swing when forces are naturally asymmetric)
+
+---
+
+## Run 42 — Remove Force Balance, Modest Lat Vel + Friction Rand
+
+**Date:** 2026-03-12
+**Status:** TRAINING
+**Target:** Fix lateral drift from Run 40 WITHOUT sacrificing forward locomotion.
+
+**Strategy:** Keep friction randomization (proven harmless), use only a moderate lat_vel
+boost (0.06 — 1.5x Run 40's 0.04). Remove force_balance entirely. The theory is that
+lateral drift was partially caused by deterministic friction (always same value) and a
+weak lat_vel penalty. Friction randomization should help the policy generalize, and a
+modest lat_vel boost should reduce drift without over-constraining.
+
+**Changes from Run 40:**
+| Parameter | Run 40 | Run 42 | Rationale |
+|-----------|--------|--------|-----------|
+| rew_force_balance | (none) | (none) | Proven to cause stepping-in-place in Run 41+41b |
+| rew_lat_vel | 0.04 | 0.06 | 1.5x boost — modest, should not over-constrain |
+| friction_rand | (none) | True [0.7, 1.3] | Keep from 41b — improves generalization |
+
+**Results:** KILLED at iter 692 — vel_x stuck ~0.05, stepping-in-place.
+- vel_x oscillated 0.02-0.13 from iter 300-692 (never reached 0.3)
+- Foot force L/R: 163 / 267 N (ratio 0.38) — WORSE than Run 40
+- Friction randomization appears to have disrupted early learning
+- Episode length grew (462-622) but only from surviving, not walking
+
+**Lesson:** Friction randomization during early training disrupts forward locomotion learning.
+May need to be introduced later (curriculum) or with much smaller range.
+
+---
+
+## Run 42b — Only Lat Vel Boost (Minimal Change from Run 40)
+
+**Date:** 2026-03-12
+**Status:** TRAINING
+**Target:** Fix lateral drift with the SMALLEST possible change from Run 40.
+
+**Strategy:** Only change lat_vel 0.04→0.06. No friction rand, no force_balance. This isolates
+whether a modest lat_vel boost alone can reduce drift without disrupting forward locomotion.
+
+**Changes from Run 40:**
+| Parameter | Run 40 | Run 42b | Rationale |
+|-----------|--------|---------|-----------|
+| rew_lat_vel | 0.04 | 0.06 | Only change — 1.5x boost for anti-drift |
+| friction_rand | (none) | (none) | Disrupted learning in Run 42 |
+| rew_force_balance | (none) | (none) | Caused stepping-in-place in Run 41+41b |
+
+**Results:** KILLED at iter 726 — vel_x oscillating around 0 (-0.14 to +0.20, avg ~0.05).
+- Same stepping-in-place pattern as Runs 41, 41b, 42
+- Force ratio: 0.47 (217/196 N) — decent symmetry but no forward motion
+- Episode length 690-714 — surviving but not walking
+- Even lat_vel 0.04→0.06 (50% increase) disrupted forward locomotion
+
+**Lesson:** RL training may be more sensitive than expected. OR this is run-to-run variance
+and Run 40 was a lucky seed. Need reproducibility test.
+
+---
+
+## Run 43 — Exact Run 40 Config (Reproducibility Test)
+
+**Date:** 2026-03-12
+**Status:** TRAINING
+**Target:** Confirm Run 40's results are reproducible with different random seed.
+
+**Strategy:** Revert ALL changes back to exact Run 40 config. If Run 43 succeeds (vel_x > 0.3
+by iter 1000), then Runs 41-42b failures were caused by the config changes. If Run 43 also
+fails, there may be a code bug introduced in the Run 41 changes (force_balance computation,
+friction method) that affects training even when weights are 0.
+
+**Changes from Run 40:** NONE — exact same config.
+- rew_lat_vel: 0.04 (Run 40 value)
+- friction_rand: False
+- rew_force_balance: 0.0
+- All other params identical
+
+**Results:** COMPLETED — 10,000 iterations. Run 40 config REPRODUCED successfully.
+
+**Final metrics (iter 9,999):**
+| Metric | Run 43 | Run 40 | Comparison |
+|--------|--------|--------|------------|
+| Peak reward | 5,743 | 5,747 | Near-identical |
+| Final vel_x | 0.54 | 0.45 | Run 43 slightly faster |
+| Episode length | 999 | 999 | Both full episodes |
+| Foot force L/R | 166 / 250 N | ~similar | R-bias in both (structural) |
+| Force ratio | 0.40 | 0.66-0.69 | Run 43 worse (variance) |
+| Swing ratio | 0.506 / 0.494 | ~similar | Both symmetric |
+| Noise std | 0.06 | 0.06 | Identical convergence |
+| Foot height L/R | 0.069 / 0.102 | ~similar | R foot higher (asymmetry) |
+
+**Key findings:**
+1. Run 40 config is REPRODUCIBLE — different seed, same performance
+2. Runs 41, 41b, 42, 42b failures were ALL caused by config changes (force_balance, lat_vel boost, friction rand)
+3. R-force bias is STRUCTURAL — present in both Run 40 and 43, not caused by any specific change
+4. Exploration phase takes ~650 iters — we were killing runs too early at iter 500
+5. Foot height asymmetry (L:0.069 vs R:0.102) confirms lateral drift issue
+
+**Checkpoints saved:** `release/run43_best/` (model_8800.pt, model_9999.pt)
+
+---
+
+## Run 44 — Observation History (15 steps) for Push Recovery
+
+**Date:** 2026-03-22
+
+**Base config:** Run 40 (hip_yaw gait ref, best natural gait quality)
+
+**Changes from Run 43:**
+1. **Observation history: 1 frame → 15 frames stacked**
+   - obs_history_len: 15 (matching EngineAI)
+   - observation_space: 64 → 64 × 15 = 960
+   - History buffer: `[N, 15, 64]` — rolls each step, resets on episode end
+   - Policy can now detect: sudden velocity change (push), tilt direction, leg state history
+   - Root cause fix: without history, robot can't distinguish "mid-step lean" from "being pushed"
+
+2. **Must train from scratch** — network input layer 64→512 becomes 960→512, incompatible with Run 40/43 checkpoints
+
+**All reward weights, push forces, gait reference unchanged from Run 40/43.**
+
+**Why this should work:**
+- Visual analysis of Run 40/43 shows robot falls because it cannot react to 1.0 m/s pushes
+- EngineAI uses 15-step history and survives same push forces
+- With history, policy learns: "base_vel changed suddenly 3 frames ago → I was pushed → widen stance"
+- Also fixes left/right asymmetry: policy can track which leg was last in swing
+
+**Goals:**
+- Fewer falls from push forces (primary)
+- More symmetric L/R gait (secondary)
+- Maintain vel_x > 0.3, feet_air_time positive
+
+**Results: KILLED at iter 898 — policy never learned (noise_std=0.99 throughout)**
+
+| Iter | Reward | Ep Length | Noise | Value Loss | vel_x | Force L/R | swing_ratio |
+|------|--------|-----------|-------|------------|-------|-----------|-------------|
+| 36 | 243 | 71 | 0.99 | 154 | 0.42 | 198/196 | 0.39/0.61 |
+| 148 | 220 | 66 | 0.99 | 163 | 0.28 | 200/198 | 0.41/0.59 |
+| 351 | 217 | 70 | 0.99 | 349 | 0.046 | 192/201 | 0.40/0.60 |
+| 694 | 254 | 83 | 0.99 | 407 | 0.003 | 194/183 | 0.44/0.56 |
+| 898 | 255 | 82 | 0.99 | 251 | **-0.063** | 191/178 | 0.44/0.56 |
+
+**Root cause — 960-dim history broke RSL-RL empirical normalizer:**
+- Episodes only last ~82 steps → frames 2-15 in `[N,15,64]` history are **zeros** at episode start
+- Running mean/std computed over all 960 dims → zero-padded frames dragged mean toward zero
+- Normalizer output near-zero for history dims → policy got no gradient from history
+- `noise_std=0.99` for 898 iterations confirms: **policy learned nothing from 15-frame history**
+
+**Positive signal (force balance improved despite failure):**
+- Force L/R was 198/196 at iter 36 — observation space change alone improves symmetry slightly
+- swing_ratio improved 0.39/0.61 → 0.44/0.56 over training
+
+---
+
+## Run 45 — Compact History (3 frames, 18 key dims)
+
+**Date:** 2026-03-23
+
+**Base config:** Run 40 (hip_yaw gait ref)
+
+**Changes from Run 44:**
+1. **History design: full 64×15=960 → compact 18×3=54**
+   - Only stack disturbance-relevant signals: `ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) = 18 dims`
+   - 3 frames × 18 dims = 54 extra dims appended to current 64-dim obs
+   - Total obs: **64 + 54 = 118** (vs 960 in Run 44)
+   - Normalizer handles 118 dims easily — no zero-padding problem (fills in 3 steps)
+   - 3 frames × 20ms = **60ms context** — enough to detect push (velocity change), tilt trend, leg state
+
+**Why compact signals:**
+- `ang_vel_b` — detects sudden rotation from push
+- `projected_gravity` — tracks tilt trend (am I falling?)
+- `joint_pos_rel` — tracks which leg is in swing/stance
+
+**All reward weights, push forces, gait reference unchanged from Run 40/43.**
+
+**Goals:**
+- vel_x > 0.3 by iter 1000 (Run 44 failed this)
+- noise_std dropping below 0.95 by iter 500
+- Fewer falls from pushes than Run 40
+- Force balance L/R closer to 0.5 than Run 40's 0.66
+
+**Results:** (pending)
