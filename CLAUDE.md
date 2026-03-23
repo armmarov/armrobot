@@ -73,6 +73,33 @@ See `docs/TRAINING_PLAN.md` for full details and multi-model review questions.
 - **Run 49:** Full domain randomization + observation noise (sim-to-real)
 - **Run 50:** Command curriculum
 
+## Full Run Workflow — Summary
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    PM01 Run Workflow                            │
+├─────────────────────────────────────────────────────────────────┤
+│  1. ANALYSE        Check screenshots + logs + ENGINEAI gap     │
+│  2. PLAN           Update TRAINING_PLAN.md with next changes   │
+│  3. PLAN REVIEW    make review-plan  →  Codex + Qwen           │
+│  4. SYNTHESIS      Write REVIEW_CLAUDE.md  →  user sign-off   │
+│  5. IMPLEMENT      Apply approved changes (code/config/hparams)│
+│  6. CODE REVIEW    make review-env   →  Codex + Qwen           │
+│  7. SYNTHESIS      Update REVIEW_CLAUDE.md  →  user sign-off  │
+│  8. COMMIT         git commit + push                           │
+│  9. TRAIN          docker exec ... make train-headless         │
+│ 10. MONITOR        Notion update every 10 min, screenshots     │
+│ 11. CONVERGE?      If yes → kill, evaluate, go to step 1      │
+│                    If stuck → kill, diagnose, go to step 2     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+> **Rule:** Steps 3–4 and 6–7 are mandatory for ALL changes without exception.
+> Codex + Qwen are the external check that prevents self-reinforcing iteration.
+> Training must never start without user sign-off on `REVIEW_CLAUDE.md`.
+
+---
+
 ## Code Review & Git
 
 ### Mandatory workflow — no exceptions
