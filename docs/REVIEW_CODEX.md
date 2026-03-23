@@ -1,6 +1,6 @@
-# Codex Review — 2026-03-23 10:00
+# Codex Review — 2026-03-23 12:05
 
-> **Question:** We just implemented Run 47. Review the two changes in armrobotlegging_env.py: (1) orientation formula at line ~757 — is the dual-signal implementation correct? (2) default_joint_pos at line ~805 — are the splay indices [1,2,7,8] correct and is the norm+deadband formula right? Any bugs or issues before we run training?
+> **Question:** Review the reward functions in armrobotlegging_env.py. Compare against the EngineAI zqsa01.py reference you read during briefing. List every formula difference, missing term, or incorrect scale factor.
 > **Session:** `019d1855-ac62-7071-a113-06254c0ee9df` (resumed — has full gap-study context)
 
 ---
@@ -27,15 +27,15 @@ Designed for multi-model review — each plan item should be independently evalu
 
 ---
 
-## Current State (Run 46 — in progress)
+## Current State (Run 47 — killed iter ~1306)
 
 | Item | Value |
 |------|-------|
 | Obs space | 334-dim (64 current + 15×18 compact history) |
-| vel_x | ~0.47–0.63 m/s |
-| Episode length | ~500 steps |
-| noise_std | 0.08 (converging) |
-| Key weakness | Unnatural gait: forward lean, wide hip splay, L/R force imbalance (175/237 N) |
+| vel_x | ~0.05 m/s — standing-still exploit |
+| Episode length | 999 (between spikes) |
+| noise_std | 0.53 (at kill) |
+| Key weakness | (1) PPO value loss spikes 10k–15k → policy collapse; (2) robot stands still, doesn't walk |
 
 ---
 
@@ -115,11 +115,57 @@ euler_xyz = euler_xyz_from_quat(self.robot.data.root_quat_w)  # [N, 3] roll, pit
 
 ---
 
-## Run 48 — Symmetry Loss
+## Run 48 — PPO Stability + Standing-Still Fix
+
+**Goal:** Fix two root causes found in Run 47 before proceeding to symmetry loss. Config-only changes — no code modification.
+
+**Status:** Planned. Two changes, both in config files only.
+
+---
+
+### Change 1 — Disable value loss clipping (`rsl_rl_ppo_cfg.py`)
+
+**Problem:** RSL-RL clips value function updates by `±clip_param = ±0.2`. Our discounted returns are ~500–600. The value function cannot move more than 0.2 per update step, so it can never catch up when the policy improves suddenly. The raw MSE loss is reported at 10,000–14,000 (the gap between frozen estimates and real returns). Bad advantage estimates → bad policy updates → reward collapse every ~250 iters.
+
+**Fix:**
+```python
+use_clipped_value_loss=False,  # was True — ±0.2 clip is too tight at return scale ~500
+```
+
+`max_grad_norm=1.0` is still active and bounds the gradient norm, providing safety without the broken scale mismatch.
+
+**Risk:** Low. Value function was barely updating before. This lets it learn properly.
+
+---
+
+### Change 2 — Tighten velocity tracking sigma (`armrobotlegging_env_cfg.py`)
+
+**Problem:** `rew_tracking_sigma=5.0` is too lenient. With sigma=5.0, a robot standing still (vel_error=0.3 m/s) gets tracking reward = 1.375 vs 1.400 for walking — a difference of only 0.025. Orientation+posture rewards dominate and the robot never learns to walk. vel_x stayed below 0.056 the entire Run 47.
+
+**Fix:**
+```python
+rew_tracking_sigma: float = 1.0  # was 5.0 — standing still at 0.3 m/s now costs 0.122 (5× larger signal)
+```
+
+| sigma | Reward standing still (cmd=0.3) | Reward walking | Difference |
+|-------|--------------------------------|----------------|------------|
+| 5.0 (current) | 1.375 | 1.400 | **0.025** (too small) |
+| 1.0 (proposed) | 1.278 | 1.400 | **0.122** (5× larger) |
+| 0.25 (Run 1, too sharp) | 0.914 | 1.400 | 0.486 (too punishing early) |
+
+**Note:** The Key Lessons warn "sigma=0.25 too sharp, use 5.0" (Run 1). But Run 1 failed because the policy couldn't balance at all — not because sigma was wrong. Run 47 robot CAN balance (ep_len=999). sigma=1.0 is the right middle ground.
+
+**Risk:** Low-medium. May slow early learning if robot falls more. Watch ep_len in first 500 iters — if it drops below 200 consistently, consider sigma=2.0 as fallback.
+
+---
+
+## Run 49 — Symmetry Loss (was Run 48)
 
 **Goal:** Enforce L/R mirror symmetry at the PPO level — the main EngineAI feature we're missing.
 
-**Status:** Planned after Run 47 validates formula fixes.
+**Status:** Planned after Run 48 confirms stable walking.
+
+> *(Was Run 48 — shifted one run due to stability fixes needed first)*
 
 ### What it does
 
@@ -180,7 +226,7 @@ with sign flip on: hip_roll, hip_yaw, ankle_roll (lateral/rotational joints)
 
 ---
 
-## Run 49 — Domain Randomization + Observation Noise
+## Run 50 — Domain Randomization + Observation Noise (was Run 49)
 
 **Goal:** Prepare for sim-to-real transfer.
 
@@ -211,7 +257,7 @@ with sign flip on: hip_roll, hip_yaw, ankle_roll (lateral/rotational joints)
 
 ---
 
-## Run 50 — Command Curriculum
+## Run 51 — Command Curriculum (was Run 50)
 
 **Goal:** Structured velocity learning — start easy, expand range as tracking improves.
 
@@ -1084,7 +1130,7 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     # velocity tracking — FULL EngineAI (Run 36: boost to drive forward walking)
     rew_tracking_lin_vel: float = 1.4        # Run 36: FULL EngineAI (was 0.93) — stronger forward drive
     rew_tracking_ang_vel: float = 1.1        # Run 36: FULL EngineAI (was 0.73) — match velocity tracking
-    rew_tracking_sigma: float = 5.0          # EngineAI value (not a weight)
+    rew_tracking_sigma: float = 1.0          # Run 48: 5.0 too lenient — standing still at 0.3 m/s cost only 0.025 reward; 1.0 gives 5× stronger signal
 
     # gait quality — ref_joint_pos reverted, orientation kept full
     rew_ref_joint_pos: float = 1.47          # Run 36: REVERT to /1.5 (2.2 caused standing still in Run 35)
@@ -1128,121 +1174,121 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
 
 Now answer this review question:
 
-We just implemented Run 47. Review the two changes in armrobotlegging_env.py: (1) orientation formula at line ~757 — is the dual-signal implementation correct? (2) default_joint_pos at line ~805 — are the splay indices [1,2,7,8] correct and is the norm+deadband formula right? Any bugs or issues before we run training?
+Review the reward functions in armrobotlegging_env.py. Compare against the EngineAI zqsa01.py reference you read during briefing. List every formula difference, missing term, or incorrect scale factor.
 
 mcp startup: no servers
 codex
-I can review the intended Run 47 patch logic, but I cannot verify the exact implementation text because the updated [`armrobotlegging_env.py`](/home/armmarov/work/robot/isaac/workspace/armrobot/ArmRobotLegging/source/ArmRobotLegging/ArmRobotLegging/tasks/direct/armrobotlegging/armrobotlegging_env.py) was not included in this message. Based on the two target changes, these are the checks that matter before training.
+Using the last provided [`armrobotlegging_env.py`](/home/armmarov/work/robot/isaac/workspace/armrobot/ArmRobotLegging/source/ArmRobotLegging/ArmRobotLegging/tasks/direct/armrobotlegging/armrobotlegging_env.py) reward code plus the latest [`armrobotlegging_env_cfg.py`](/home/armmarov/work/robot/isaac/workspace/armrobot/ArmRobotLegging/source/ArmRobotLegging/ArmRobotLegging/tasks/direct/armrobotlegging/armrobotlegging_env_cfg.py), these are the remaining differences versus EngineAI’s [`zqsa01.py`](/home/armmarov/work/robot/engineai/engineai_legged_gym/legged_gym/envs/zq_sa_01/zqsa01.py).
 
-**Findings**
+**Formula differences**
+- `tracking_lin_vel`: our code uses `exp(-error / sigma)`, EngineAI uses `exp(-error * tracking_sigma)`. That is a structural formula difference, not just a parameter difference.
+- `tracking_ang_vel`: same issue as linear velocity; ours divides by `sigma`, EngineAI multiplies by `tracking_sigma`.
+- `base_height`: our reward uses absolute root height vs a fixed target. EngineAI computes base height relative to the average stance-foot height, then compares that relative height to target. This is a significant formulation difference.
+- `vel_mismatch`: our angular part uses sum of squares on `ang_vel_xy`; EngineAI uses `torch.norm(base_ang_vel[:, :2], dim=1)`.
+- `default_joint_pos`: still differs from EngineAI. EngineAI uses a yaw/roll-focused regularizer plus a global linear joint-deviation term. Our current Run 47 version likely retargets hip splay joints `[1,2,7,8]`, which is intentional, but it is still not the same formula/joint set as EngineAI’s reference implementation.
+- `feet_clearance`: our code uses a continuous penalty from deviation to a target clearance profile. EngineAI’s actual `zqsa01.py` implementation is a thresholded positive reward based on accumulated foot height exceeding target during swing. This is one of the largest remaining reward-formula mismatches.
+- `feet_distance`: close, but not identical. EngineAI clamps distance error to `[-0.5, 0]` / `[0, 0.5]` before the exponential; our code does not use the same bounded clamp structure.
+- `knee_distance`: our implementation is a simple target-distance exponential. EngineAI uses the same min/max windowed structure as `feet_distance`, not a single target-distance error.
+- `orientation`: if Run 47 was implemented as planned, this should now match EngineAI. Before Run 47 it differed. If the latest env code did not actually land the dual-signal Euler+gravity form, it is still mismatched.
 
-1. **Potential bug at the new orientation block around [`armrobotlegging_env.py:757`](/home/armmarov/work/robot/isaac/workspace/armrobot/ArmRobotLegging/source/ArmRobotLegging/ArmRobotLegging/tasks/direct/armrobotlegging/armrobotlegging_env.py#L757): `euler_xyz_from_quat` return shape.**  
-   If the implementation does something like:
-   ```python
-   euler_xyz = euler_xyz_from_quat(base_quat)
-   quat_mismatch = torch.exp(-torch.sum(torch.abs(euler_xyz[:, :2]), dim=1) * 10.0)
-   ```
-   that is likely wrong. In IsaacLab this helper is typically tuple-like, so the safe form is:
-   ```python
-   roll, pitch, _ = euler_xyz_from_quat(base_quat)
-   base_euler_xy = torch.stack((roll, pitch), dim=-1)
-   ```
-   The EngineAI target formula from [`zqsa01.py:293-295`](/home/armmarov/work/robot/engineai/engineai_legged_gym/legged_gym/envs/zq_sa_01/zqsa01.py#L293) is otherwise correct.
+**Incorrect scale factors relative to EngineAI**
+- `rew_tracking_sigma`: current config is `1.0`; EngineAI reference uses `5`.
+- `rew_ref_joint_pos`: current `1.47`; EngineAI `2.2`.
+- `rew_feet_air_time`: current `1.0`; EngineAI `1.5`.
+- `rew_feet_contact_number`: current `0.93`; EngineAI `1.4`.
+- `rew_default_joint_pos`: current `0.53`; EngineAI `0.8`.
+- `rew_feet_distance`: current `0.13`; EngineAI `0.2`.
+- `rew_foot_slip`: current `-0.067`; EngineAI `-0.1`.
+- `rew_dof_vel`: current `-6.7e-6`; EngineAI `-1e-5`.
+- `rew_dof_acc`: current `-3.3e-9`; EngineAI `-5e-9`.
 
-2. **The splay indices `[1, 2, 7, 8]` are correct, but the formula is only correct if it uses pairwise left/right norms plus one deadbanded scalar, not a flat 4D norm or per-joint deadbands.**  
-   For Change 1 at around [`armrobotlegging_env.py:805`](/home/armmarov/work/robot/isaac/workspace/armrobot/ArmRobotLegging/source/ArmRobotLegging/ArmRobotLegging/tasks/direct/armrobotlegging/armrobotlegging_env.py#L805), the target joints are right:
-   - left hip splay: `1, 2`
-   - right hip splay: `7, 8`
+**Missing EngineAI reward terms**
+- `feet_contact_forces` is missing. EngineAI has it with scale `-0.02`.
+- `torques` is missing. EngineAI has it with scale `-1e-10`.
+- `collision` is missing from the PM01 reference comparison set if you want full parity with the legged-gym branch.
 
-   The preferred formula is:
-   ```python
-   left_splay = joint_pos_rel[:, [1, 2]]
-   right_splay = joint_pos_rel[:, [7, 8]]
-   splay_dev = torch.norm(left_splay, dim=1) + torch.norm(right_splay, dim=1)
-   splay_dev = torch.clamp(splay_dev - 0.1, 0.0, 50.0)
-   rew_default_pos = cfg.rew_default_joint_pos * (
-       torch.exp(-splay_dev * 100.0) - 0.01 * torch.norm(joint_pos_rel, dim=1)
-   )
-   ```
-   If the implementation instead does `torch.norm(joint_pos_rel[:, [1,2,7,8]], dim=1)` that is still usable, but it is less faithful to the EngineAI left/right structure.
+**Extra non-EngineAI terms in our env**
+- `energy` is ours-only.
+- `lat_vel` is ours-only.
+- `force_balance` exists in code but is disabled at `0.0`.
+- `swing_phase_ground` exists in code but is disabled at `0.0`.
 
-**Answers**
+**Scale/time handling mismatch**
+- EngineAI multiplies reward scales by policy `dt` during init. Our reward scales are used directly. Even when nominal coefficients match, the effective reward magnitudes are not truly identical because of this.
 
-1. **Orientation dual-signal implementation**
-   - Conceptually correct if it now does:
-     - `quat_mismatch = exp(-sum(abs(euler_xy)) * 10)`
-     - `orientation = exp(-norm(projected_gravity_xy) * 20)`
-     - average them and multiply by `cfg.rew_orientation`
-   - Keep `rew_orientation=1.0`; that part is correct.
-   - Main bug to check: unpacking `euler_xyz_from_quat` correctly.
+**What currently does match or is very close**
+- `ref_joint_pos` formula itself now matches EngineAI’s norm-plus-linear structure.
+- `feet_air_time` formula and contact filtering match the biped reference path.
+- `feet_contact_number` sign structure matches.
+- `action_smoothness` matches.
+- `track_vel_hard` matches.
+- `low_speed` matches.
+- `base_acc` matches in form.
+- `foot_slip` is effectively the same formula with a smaller scale.
 
-2. **`default_joint_pos` splay indices and formula**
-   - Indices `[1,2,7,8]` are correct for hip roll + hip yaw splay.
-   - The formula is right if it uses left/right pair norms and a single `0.1` deadband before the exponential term.
-   - Keep the `-0.01 * torch.norm(joint_pos_rel, dim=1)` global term; don’t drop it.
+The biggest remaining reward mismatches are:
+1. velocity tracking formula (`/ sigma` vs `* sigma`)
+2. base-height formula
+3. feet-clearance formula
+4. default-joint-posture formulation/joint selection
+5. missing `dt` reward scaling
 
-**Before training**
-- Verify the orientation code is not indexing directly into the raw return of `euler_xyz_from_quat`.
-- Verify hip pitch indices `0,6` are no longer in the splay block.
-- Verify the deadband is applied to the combined splay magnitude, not independently per joint unless that was a deliberate design change.
-- Expect the orientation reward term to numerically drop at first because it is stricter; that alone is not a regression.
-
-If you paste the two updated code blocks from [`armrobotlegging_env.py`](/home/armmarov/work/robot/isaac/workspace/armrobot/ArmRobotLegging/source/ArmRobotLegging/ArmRobotLegging/tasks/direct/armrobotlegging/armrobotlegging_env.py), I can do an exact pass and tell you whether there is any implementation bug.
+If you want, I can turn this into a strict patch checklist: `must-change before claiming EngineAI parity` vs `acceptable intentional deviations`.
 tokens used
-237,801
-I can review the intended Run 47 patch logic, but I cannot verify the exact implementation text because the updated [`armrobotlegging_env.py`](/home/armmarov/work/robot/isaac/workspace/armrobot/ArmRobotLegging/source/ArmRobotLegging/ArmRobotLegging/tasks/direct/armrobotlegging/armrobotlegging_env.py) was not included in this message. Based on the two target changes, these are the checks that matter before training.
+412,653
+Using the last provided [`armrobotlegging_env.py`](/home/armmarov/work/robot/isaac/workspace/armrobot/ArmRobotLegging/source/ArmRobotLegging/ArmRobotLegging/tasks/direct/armrobotlegging/armrobotlegging_env.py) reward code plus the latest [`armrobotlegging_env_cfg.py`](/home/armmarov/work/robot/isaac/workspace/armrobot/ArmRobotLegging/source/ArmRobotLegging/ArmRobotLegging/tasks/direct/armrobotlegging/armrobotlegging_env_cfg.py), these are the remaining differences versus EngineAI’s [`zqsa01.py`](/home/armmarov/work/robot/engineai/engineai_legged_gym/legged_gym/envs/zq_sa_01/zqsa01.py).
 
-**Findings**
+**Formula differences**
+- `tracking_lin_vel`: our code uses `exp(-error / sigma)`, EngineAI uses `exp(-error * tracking_sigma)`. That is a structural formula difference, not just a parameter difference.
+- `tracking_ang_vel`: same issue as linear velocity; ours divides by `sigma`, EngineAI multiplies by `tracking_sigma`.
+- `base_height`: our reward uses absolute root height vs a fixed target. EngineAI computes base height relative to the average stance-foot height, then compares that relative height to target. This is a significant formulation difference.
+- `vel_mismatch`: our angular part uses sum of squares on `ang_vel_xy`; EngineAI uses `torch.norm(base_ang_vel[:, :2], dim=1)`.
+- `default_joint_pos`: still differs from EngineAI. EngineAI uses a yaw/roll-focused regularizer plus a global linear joint-deviation term. Our current Run 47 version likely retargets hip splay joints `[1,2,7,8]`, which is intentional, but it is still not the same formula/joint set as EngineAI’s reference implementation.
+- `feet_clearance`: our code uses a continuous penalty from deviation to a target clearance profile. EngineAI’s actual `zqsa01.py` implementation is a thresholded positive reward based on accumulated foot height exceeding target during swing. This is one of the largest remaining reward-formula mismatches.
+- `feet_distance`: close, but not identical. EngineAI clamps distance error to `[-0.5, 0]` / `[0, 0.5]` before the exponential; our code does not use the same bounded clamp structure.
+- `knee_distance`: our implementation is a simple target-distance exponential. EngineAI uses the same min/max windowed structure as `feet_distance`, not a single target-distance error.
+- `orientation`: if Run 47 was implemented as planned, this should now match EngineAI. Before Run 47 it differed. If the latest env code did not actually land the dual-signal Euler+gravity form, it is still mismatched.
 
-1. **Potential bug at the new orientation block around [`armrobotlegging_env.py:757`](/home/armmarov/work/robot/isaac/workspace/armrobot/ArmRobotLegging/source/ArmRobotLegging/ArmRobotLegging/tasks/direct/armrobotlegging/armrobotlegging_env.py#L757): `euler_xyz_from_quat` return shape.**  
-   If the implementation does something like:
-   ```python
-   euler_xyz = euler_xyz_from_quat(base_quat)
-   quat_mismatch = torch.exp(-torch.sum(torch.abs(euler_xyz[:, :2]), dim=1) * 10.0)
-   ```
-   that is likely wrong. In IsaacLab this helper is typically tuple-like, so the safe form is:
-   ```python
-   roll, pitch, _ = euler_xyz_from_quat(base_quat)
-   base_euler_xy = torch.stack((roll, pitch), dim=-1)
-   ```
-   The EngineAI target formula from [`zqsa01.py:293-295`](/home/armmarov/work/robot/engineai/engineai_legged_gym/legged_gym/envs/zq_sa_01/zqsa01.py#L293) is otherwise correct.
+**Incorrect scale factors relative to EngineAI**
+- `rew_tracking_sigma`: current config is `1.0`; EngineAI reference uses `5`.
+- `rew_ref_joint_pos`: current `1.47`; EngineAI `2.2`.
+- `rew_feet_air_time`: current `1.0`; EngineAI `1.5`.
+- `rew_feet_contact_number`: current `0.93`; EngineAI `1.4`.
+- `rew_default_joint_pos`: current `0.53`; EngineAI `0.8`.
+- `rew_feet_distance`: current `0.13`; EngineAI `0.2`.
+- `rew_foot_slip`: current `-0.067`; EngineAI `-0.1`.
+- `rew_dof_vel`: current `-6.7e-6`; EngineAI `-1e-5`.
+- `rew_dof_acc`: current `-3.3e-9`; EngineAI `-5e-9`.
 
-2. **The splay indices `[1, 2, 7, 8]` are correct, but the formula is only correct if it uses pairwise left/right norms plus one deadbanded scalar, not a flat 4D norm or per-joint deadbands.**  
-   For Change 1 at around [`armrobotlegging_env.py:805`](/home/armmarov/work/robot/isaac/workspace/armrobot/ArmRobotLegging/source/ArmRobotLegging/ArmRobotLegging/tasks/direct/armrobotlegging/armrobotlegging_env.py#L805), the target joints are right:
-   - left hip splay: `1, 2`
-   - right hip splay: `7, 8`
+**Missing EngineAI reward terms**
+- `feet_contact_forces` is missing. EngineAI has it with scale `-0.02`.
+- `torques` is missing. EngineAI has it with scale `-1e-10`.
+- `collision` is missing from the PM01 reference comparison set if you want full parity with the legged-gym branch.
 
-   The preferred formula is:
-   ```python
-   left_splay = joint_pos_rel[:, [1, 2]]
-   right_splay = joint_pos_rel[:, [7, 8]]
-   splay_dev = torch.norm(left_splay, dim=1) + torch.norm(right_splay, dim=1)
-   splay_dev = torch.clamp(splay_dev - 0.1, 0.0, 50.0)
-   rew_default_pos = cfg.rew_default_joint_pos * (
-       torch.exp(-splay_dev * 100.0) - 0.01 * torch.norm(joint_pos_rel, dim=1)
-   )
-   ```
-   If the implementation instead does `torch.norm(joint_pos_rel[:, [1,2,7,8]], dim=1)` that is still usable, but it is less faithful to the EngineAI left/right structure.
+**Extra non-EngineAI terms in our env**
+- `energy` is ours-only.
+- `lat_vel` is ours-only.
+- `force_balance` exists in code but is disabled at `0.0`.
+- `swing_phase_ground` exists in code but is disabled at `0.0`.
 
-**Answers**
+**Scale/time handling mismatch**
+- EngineAI multiplies reward scales by policy `dt` during init. Our reward scales are used directly. Even when nominal coefficients match, the effective reward magnitudes are not truly identical because of this.
 
-1. **Orientation dual-signal implementation**
-   - Conceptually correct if it now does:
-     - `quat_mismatch = exp(-sum(abs(euler_xy)) * 10)`
-     - `orientation = exp(-norm(projected_gravity_xy) * 20)`
-     - average them and multiply by `cfg.rew_orientation`
-   - Keep `rew_orientation=1.0`; that part is correct.
-   - Main bug to check: unpacking `euler_xyz_from_quat` correctly.
+**What currently does match or is very close**
+- `ref_joint_pos` formula itself now matches EngineAI’s norm-plus-linear structure.
+- `feet_air_time` formula and contact filtering match the biped reference path.
+- `feet_contact_number` sign structure matches.
+- `action_smoothness` matches.
+- `track_vel_hard` matches.
+- `low_speed` matches.
+- `base_acc` matches in form.
+- `foot_slip` is effectively the same formula with a smaller scale.
 
-2. **`default_joint_pos` splay indices and formula**
-   - Indices `[1,2,7,8]` are correct for hip roll + hip yaw splay.
-   - The formula is right if it uses left/right pair norms and a single `0.1` deadband before the exponential term.
-   - Keep the `-0.01 * torch.norm(joint_pos_rel, dim=1)` global term; don’t drop it.
+The biggest remaining reward mismatches are:
+1. velocity tracking formula (`/ sigma` vs `* sigma`)
+2. base-height formula
+3. feet-clearance formula
+4. default-joint-posture formulation/joint selection
+5. missing `dt` reward scaling
 
-**Before training**
-- Verify the orientation code is not indexing directly into the raw return of `euler_xyz_from_quat`.
-- Verify hip pitch indices `0,6` are no longer in the splay block.
-- Verify the deadband is applied to the combined splay magnitude, not independently per joint unless that was a deliberate design change.
-- Expect the orientation reward term to numerically drop at first because it is stricter; that alone is not a regression.
-
-If you paste the two updated code blocks from [`armrobotlegging_env.py`](/home/armmarov/work/robot/isaac/workspace/armrobot/ArmRobotLegging/source/ArmRobotLegging/ArmRobotLegging/tasks/direct/armrobotlegging/armrobotlegging_env.py), I can do an exact pass and tell you whether there is any implementation bug.
+If you want, I can turn this into a strict patch checklist: `must-change before claiming EngineAI parity` vs `acceptable intentional deviations`.

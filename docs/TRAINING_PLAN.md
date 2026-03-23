@@ -5,15 +5,15 @@ Designed for multi-model review — each plan item should be independently evalu
 
 ---
 
-## Current State (Run 46 — in progress)
+## Current State (Run 47 — killed iter ~1306)
 
 | Item | Value |
 |------|-------|
 | Obs space | 334-dim (64 current + 15×18 compact history) |
-| vel_x | ~0.47–0.63 m/s |
-| Episode length | ~500 steps |
-| noise_std | 0.08 (converging) |
-| Key weakness | Unnatural gait: forward lean, wide hip splay, L/R force imbalance (175/237 N) |
+| vel_x | ~0.05 m/s — standing-still exploit |
+| Episode length | 999 (between spikes) |
+| noise_std | 0.53 (at kill) |
+| Key weakness | (1) PPO value loss spikes 10k–15k → policy collapse; (2) robot stands still, doesn't walk |
 
 ---
 
@@ -93,11 +93,57 @@ euler_xyz = euler_xyz_from_quat(self.robot.data.root_quat_w)  # [N, 3] roll, pit
 
 ---
 
-## Run 48 — Symmetry Loss
+## Run 48 — PPO Stability + Standing-Still Fix
+
+**Goal:** Fix two root causes found in Run 47 before proceeding to symmetry loss. Config-only changes — no code modification.
+
+**Status:** Planned. Two changes, both in config files only.
+
+---
+
+### Change 1 — Disable value loss clipping (`rsl_rl_ppo_cfg.py`)
+
+**Problem:** RSL-RL clips value function updates by `±clip_param = ±0.2`. Our discounted returns are ~500–600. The value function cannot move more than 0.2 per update step, so it can never catch up when the policy improves suddenly. The raw MSE loss is reported at 10,000–14,000 (the gap between frozen estimates and real returns). Bad advantage estimates → bad policy updates → reward collapse every ~250 iters.
+
+**Fix:**
+```python
+use_clipped_value_loss=False,  # was True — ±0.2 clip is too tight at return scale ~500
+```
+
+`max_grad_norm=1.0` is still active and bounds the gradient norm, providing safety without the broken scale mismatch.
+
+**Risk:** Low. Value function was barely updating before. This lets it learn properly.
+
+---
+
+### Change 2 — Tighten velocity tracking sigma (`armrobotlegging_env_cfg.py`)
+
+**Problem:** `rew_tracking_sigma=5.0` is too lenient. With sigma=5.0, a robot standing still (vel_error=0.3 m/s) gets tracking reward = 1.375 vs 1.400 for walking — a difference of only 0.025. Orientation+posture rewards dominate and the robot never learns to walk. vel_x stayed below 0.056 the entire Run 47.
+
+**Fix:**
+```python
+rew_tracking_sigma: float = 1.0  # was 5.0 — standing still at 0.3 m/s now costs 0.122 (5× larger signal)
+```
+
+| sigma | Reward standing still (cmd=0.3) | Reward walking | Difference |
+|-------|--------------------------------|----------------|------------|
+| 5.0 (current) | 1.375 | 1.400 | **0.025** (too small) |
+| 1.0 (proposed) | 1.278 | 1.400 | **0.122** (5× larger) |
+| 0.25 (Run 1, too sharp) | 0.914 | 1.400 | 0.486 (too punishing early) |
+
+**Note:** The Key Lessons warn "sigma=0.25 too sharp, use 5.0" (Run 1). But Run 1 failed because the policy couldn't balance at all — not because sigma was wrong. Run 47 robot CAN balance (ep_len=999). sigma=1.0 is the right middle ground.
+
+**Risk:** Low-medium. May slow early learning if robot falls more. Watch ep_len in first 500 iters — if it drops below 200 consistently, consider sigma=2.0 as fallback.
+
+---
+
+## Run 49 — Symmetry Loss (was Run 48)
 
 **Goal:** Enforce L/R mirror symmetry at the PPO level — the main EngineAI feature we're missing.
 
-**Status:** Planned after Run 47 validates formula fixes.
+**Status:** Planned after Run 48 confirms stable walking.
+
+> *(Was Run 48 — shifted one run due to stability fixes needed first)*
 
 ### What it does
 
@@ -158,7 +204,7 @@ with sign flip on: hip_roll, hip_yaw, ankle_roll (lateral/rotational joints)
 
 ---
 
-## Run 49 — Domain Randomization + Observation Noise
+## Run 50 — Domain Randomization + Observation Noise (was Run 49)
 
 **Goal:** Prepare for sim-to-real transfer.
 
@@ -189,7 +235,7 @@ with sign flip on: hip_roll, hip_yaw, ankle_roll (lateral/rotational joints)
 
 ---
 
-## Run 50 — Command Curriculum
+## Run 51 — Command Curriculum (was Run 50)
 
 **Goal:** Structured velocity learning — start easy, expand range as tracking improves.
 

@@ -143,7 +143,7 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     # velocity tracking — FULL EngineAI (Run 36: boost to drive forward walking)
     rew_tracking_lin_vel: float = 1.4        # Run 36: FULL EngineAI (was 0.93) — stronger forward drive
     rew_tracking_ang_vel: float = 1.1        # Run 36: FULL EngineAI (was 0.73) — match velocity tracking
-    rew_tracking_sigma: float = 5.0          # EngineAI value (not a weight)
+    rew_tracking_sigma: float = 1.0          # Run 48: 5.0 too lenient — standing still at 0.3 m/s cost only 0.025 reward; 1.0 gives 5× stronger signal
 
     # gait quality — ref_joint_pos reverted, orientation kept full
     rew_ref_joint_pos: float = 1.47          # Run 36: REVERT to /1.5 (2.2 caused standing still in Run 35)

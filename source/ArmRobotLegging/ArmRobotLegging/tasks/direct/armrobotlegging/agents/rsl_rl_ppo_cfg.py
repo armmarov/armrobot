@@ -21,7 +21,7 @@ class PM01WalkingPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     )
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
-        use_clipped_value_loss=True,
+        use_clipped_value_loss=False,  # Run 48: clip_param=0.2 too tight for return scale ~560 — value fn couldn't track
         clip_param=0.2,
         entropy_coef=0.001,
         num_learning_epochs=2,  # Run 31: match EngineAI (was 5, caused value loss spikes)

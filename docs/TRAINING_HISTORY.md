@@ -2193,7 +2193,35 @@ friction method) that affects training even when weights are 0.
 - Episode length stays near 999
 - No value_loss spikes above 50 in first 500 iters
 
-**Results:** (in progress — started 2026-03-23)
+**Results: KILLED at iter ~1306 — 3rd value_loss spike, robot collapsed**
 
-| Iter | Reward | Ep Length | Noise | Value Loss | vel_x | Force L/R |
-|------|--------|-----------|-------|------------|-------|-----------|
+| Iter | Reward | Ep Length | Noise | Value Loss | vel_x |
+|------|--------|-----------|-------|------------|-------|
+| ~930 | 2646 | 802 | 0.67 | 19 | 0.17 |
+| ~1038 | 1328 | 400 | 0.62 | ⚠️ 10,667 | 0.21 |
+| ~1055 | 3426 | 999 | 0.61 | 21 | 0.056 |
+| ~1059 | 3367 | 992 | 0.61 | ⚠️ 10,276 | — |
+| ~1177 | 3426 | 999 | 0.57 | 21 | 0.056 |
+| ~1304 | 3426 | 999 | 0.53 | ⚠️ 14,734 | — |
+| ~1306 | 1425 | 428 | 0.53 | 434 | 0.051 |
+
+**Positives confirmed:**
+- Orientation dual-signal fix works — trunk upright, no forward lean ✅
+- Hip splay indices `[1,2,7,8]` fix works — legs narrower ✅
+- ep_len reached 999 between spikes — policy IS stable when critic works ✅
+
+**Two root causes found for Run 48:**
+
+**Issue 1 — Value loss clipping ineffective at reward scale:**
+- RSL-RL clips value function by `±clip_param = ±0.2` from old estimate
+- Discounted returns are ~500–600. A clip of ±0.2 is essentially nothing
+- Value function falls behind → reported MSE loss spikes to 14,000 (raw discrepancy)
+- Bad advantage estimates → bad policy updates → reward collapse
+- Fix: `use_clipped_value_loss=False` (let value update freely, bounded by max_grad_norm=1.0)
+
+**Issue 2 — `rew_tracking_sigma=5.0` too lenient → standing-still exploit:**
+- With sigma=5.0, robot commanded at 0.3 m/s gets tracking reward = 1.4 × exp(-0.09/5.0) = 1.375 (vs 1.4 for walking)
+- Difference is only 0.025 — standing still is almost as rewarding as walking
+- Robot maximises orientation+posture rewards by standing still; velocity cost is negligible
+- vel_x never exceeded 0.056 across entire run
+- Fix: reduce `rew_tracking_sigma` from 5.0 to 1.0 (standing still penalty = 1.4 × exp(-0.09) = 1.278, difference 0.122 — 5× larger)
