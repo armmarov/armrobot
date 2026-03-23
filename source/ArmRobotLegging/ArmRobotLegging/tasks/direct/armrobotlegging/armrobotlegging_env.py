@@ -755,8 +755,8 @@ def compute_rewards(
     gravity_w = torch.zeros(num_envs, 3, device=device)
     gravity_w[:, 2] = -1.0
     projected_gravity = quat_rotate_inverse(base_quat, gravity_w)
-    base_euler = euler_xyz_from_quat(base_quat)  # [N, 3] roll, pitch, yaw
-    quat_mismatch = torch.exp(-torch.sum(torch.abs(base_euler[:, :2]), dim=1) * 10.0)
+    roll, pitch, _ = euler_xyz_from_quat(base_quat)  # each [N,] — returns tuple not tensor
+    quat_mismatch = torch.exp(-(torch.abs(roll) + torch.abs(pitch)) * 10.0)
     orientation = torch.exp(-torch.norm(projected_gravity[:, :2], dim=1) * 20.0)
     rew_orient = cfg.rew_orientation * (quat_mismatch + orientation) / 2.0
 
