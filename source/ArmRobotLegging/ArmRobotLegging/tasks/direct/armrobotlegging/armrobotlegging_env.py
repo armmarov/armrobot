@@ -8,7 +8,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
 from isaaclab.sensors import ContactSensor
-from isaaclab.utils.math import quat_rotate_inverse
+from isaaclab.utils.math import quat_rotate_inverse, euler_xyz_from_quat
 
 from .armrobotlegging_env_cfg import ArmrobotleggingEnvCfg
 
@@ -114,9 +114,11 @@ class ArmrobotleggingEnv(DirectRLEnv):
         # --- curriculum: swing penalty annealing ---
         self._global_step_counter = 0
 
-        # --- Run 45: compact history buffer [N, history_len, obs_history_size] ---
-        # Stores last 3 frames of: ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) = 18
-        # Run 44 used full 64×15=960 — RSL-RL normalizer failed (zero-padded frames dragged mean)
+        # --- Run 46: compact history buffer [N, history_len, obs_history_size] ---
+        # Stores last 15 frames of: ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) = 18
+        # 15 frames matches EngineAI frame_stack=15; compact 18-dim keeps total obs at 334 (< 512 hidden — no bottleneck)
+        # Run 44 failed: full 64×15=960 > 512 first hidden layer (compression bottleneck)
+        # Run 45 used 3 frames (118-dim) — too short temporal context
         self.obs_history = torch.zeros(
             self.num_envs, self.cfg.obs_history_len, self.cfg.obs_history_size,
             device=self.device
@@ -177,7 +179,7 @@ class ArmrobotleggingEnv(DirectRLEnv):
         self.robot.set_joint_position_target(targets, joint_ids=self._leg_joint_ids)
 
     # ================================================================
-    # Observations  [N, 118]  (Run 45: 64 current + 54 compact history)
+    # Observations  [N, 334]  (Run 46: 64 current + 270 compact history — 15×18)
     # ================================================================
 
     def _get_observations(self) -> dict:
@@ -218,16 +220,16 @@ class ArmrobotleggingEnv(DirectRLEnv):
             dim=-1,
         )  # [N, 64]
 
-        # Run 45: compact history — only disturbance-relevant signals [N, 18]
-        # ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) = 18 dims
+        # Run 46: compact history — disturbance-relevant signals only [N, 18]
+        # ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) = 18 dims × 15 frames
         history_frame = torch.cat([ang_vel_b, projected_gravity, joint_pos_rel], dim=-1)  # [N, 18]
 
         # roll history buffer: shift old frames back, insert current at front
-        # obs_history: [N, 3, 18] — index 0 = most recent
+        # obs_history: [N, 15, 18] — index 0 = most recent
         self.obs_history = torch.roll(self.obs_history, shifts=1, dims=1)
         self.obs_history[:, 0, :] = history_frame
 
-        # concatenate current full obs + flattened compact history → [N, 118]
+        # concatenate current full obs + flattened compact history → [N, 334]
         obs_stacked = torch.cat([current_obs, self.obs_history.view(self.num_envs, -1)], dim=-1)
         return {"policy": obs_stacked}
 
@@ -746,13 +748,17 @@ def compute_rewards(
     contact_reward = torch.where(foot_contact == desired_contact, 1.0, -0.3)
     rew_contact_pattern = cfg.rew_feet_contact_number * torch.mean(contact_reward, dim=-1)
 
-    # --- 5. orientation (stay upright) ---
+    # --- 5. orientation (stay upright) --- Run 47: EngineAI dual-signal formula
+    # Signal 1: euler roll/pitch angles (scale 10)
+    # Signal 2: projected gravity xy norm (scale 20, stronger than our old scale 10)
+    # Combined: average of both → reward in [0, 1], no weight rescaling needed
     gravity_w = torch.zeros(num_envs, 3, device=device)
     gravity_w[:, 2] = -1.0
     projected_gravity = quat_rotate_inverse(base_quat, gravity_w)
-    # projected_gravity[:, 2] should be -1 when upright
-    roll_pitch_error = torch.sum(torch.square(projected_gravity[:, :2]), dim=-1)
-    rew_orient = cfg.rew_orientation * torch.exp(-roll_pitch_error * 10.0)
+    base_euler = euler_xyz_from_quat(base_quat)  # [N, 3] roll, pitch, yaw
+    quat_mismatch = torch.exp(-torch.sum(torch.abs(base_euler[:, :2]), dim=1) * 10.0)
+    orientation = torch.exp(-torch.norm(projected_gravity[:, :2], dim=1) * 20.0)
+    rew_orient = cfg.rew_orientation * (quat_mismatch + orientation) / 2.0
 
     # --- 6. base height ---
     height_error = torch.abs(base_pos_z - cfg.base_height_target)
@@ -797,14 +803,16 @@ def compute_rewards(
     over_height = torch.clamp(feet_heights - cfg.max_feet_height, min=0.0) * swing_mask
     rew_feet_height_max = cfg.rew_feet_height_max * torch.sum(over_height, dim=-1)
 
-    # --- 12. default joint position (matching EngineAI formula) ---
-    # EngineAI penalizes hip_pitch/hip_roll (yaw/roll in their naming: idx 0,1,6,7)
-    # sharply with exp(-abs_sum * 100), plus mild linear penalty on all joints
-    yaw_roll_dev = torch.sum(
-        torch.abs(joint_pos_rel[:, [0, 1, 6, 7]]), dim=-1
-    )  # hip_pitch_l, hip_roll_l, hip_pitch_r, hip_roll_r
+    # --- 12. default joint position --- Run 47: fix indices to target hip splay joints
+    # Old code used [0,1,6,7] = hip_pitch_l, hip_roll_l, hip_pitch_r, hip_roll_r (wrong — hip_pitch needs freedom)
+    # New: [1,2,7,8] = hip_roll_l, hip_yaw_l, hip_roll_r, hip_yaw_r (the actual splay joints)
+    # Formula: EngineAI-style norm + 0.1 rad deadband + mild linear penalty on all joints
+    left_splay = joint_pos_rel[:, [1, 2]]   # hip_roll_l, hip_yaw_l
+    right_splay = joint_pos_rel[:, [7, 8]]  # hip_roll_r, hip_yaw_r
+    splay_norm = torch.norm(left_splay, dim=1) + torch.norm(right_splay, dim=1)
+    splay_norm = torch.clamp(splay_norm - 0.1, min=0.0, max=0.5)  # 0.1 rad deadband
     rew_default_pos = cfg.rew_default_joint_pos * (
-        torch.exp(-yaw_roll_dev * 100.0) - 0.01 * torch.norm(joint_pos_rel, dim=1)
+        torch.exp(-splay_norm * 100.0) - 0.01 * torch.norm(joint_pos_rel, dim=1)
     )
 
     # --- 13. feet distance (keep feet within proper range) ---
