@@ -75,17 +75,36 @@ See `docs/TRAINING_PLAN.md` for full details and multi-model review questions.
 
 ## Code Review & Git
 
-- After fixing/updating code, **do a code review** before running training
-- **Run Codex + Qwen as peer reviewers** before every code change or plan update:
-  - `make review-plan` — review `TRAINING_PLAN.md` vs live env code
-  - `make review-env` — review reward functions vs EngineAI reference
-  - `make review PROMPT="..."` — ad-hoc review with custom question
-  - Both CLIs run in parallel; results saved to `docs/REVIEW_CODEX.md` and `docs/REVIEW_QWEN.md`
-- **After both reviews complete, you MUST:**
-  1. Read BOTH `docs/REVIEW_CODEX.md` and `docs/REVIEW_QWEN.md` fully
-  2. Write `docs/REVIEW_CLAUDE.md` — your own synthesis covering: agreements, conflicts, bugs found, changes required, and a clear GO / NO-GO recommendation
-  3. **Wait for user sign-off on `REVIEW_CLAUDE.md` before running any training or committing code changes**
-  4. Only after user approves: apply any fixes, commit, then run training
-- If code review passes and user signs off, **commit and push to git** for tracking
-- Commit message format: `Run N: <brief description of changes>`
-- Push to the current branch after each run's code changes are verified
+### Mandatory workflow — no exceptions
+
+Every run follows this exact sequence. Do NOT skip any step or shortcut the reviews.
+
+**Step 1 — Analysis & Plan**
+- Analyse current results, screenshots, and gap vs EngineAI
+- Update `docs/TRAINING_PLAN.md` with proposed changes for the next run
+
+**Step 2 — Plan review (before writing any code)**
+- Run `make review-plan` — Codex + Qwen review `TRAINING_PLAN.md` vs live env code
+- Read BOTH `docs/REVIEW_CODEX.md` and `docs/REVIEW_QWEN.md` fully
+- Write `docs/REVIEW_CLAUDE.md` — synthesis: agreements, conflicts, bugs, GO / NO-GO
+- **Wait for user sign-off before implementing any changes**
+
+**Step 3 — Implement changes**
+- Apply all approved changes (code, config, hyperparameters — everything)
+
+**Step 4 — Code review (after writing code, before training)**
+- Run `make review-env` — Codex + Qwen review the actual implemented changes
+- Read BOTH updated `docs/REVIEW_CODEX.md` and `docs/REVIEW_QWEN.md` fully
+- Update `docs/REVIEW_CLAUDE.md` with code-review synthesis and GO / NO-GO
+- **Wait for user sign-off before running training**
+- This gate applies to ALL changes: reward formulas, hyperparameters, config, architecture — no exceptions. External reviewers prevent self-reinforcing iteration.
+
+**Step 5 — Commit & train**
+- Only after user approves: commit, push, then run training
+- Commit message format: `Run N: <brief description>`
+
+### Review commands
+- `make review-plan` — review `TRAINING_PLAN.md` vs live env code
+- `make review-env` — review reward functions vs EngineAI reference
+- `make review PROMPT="..."` — ad-hoc review with custom question
+- Both CLIs run in parallel; results saved to `docs/REVIEW_CODEX.md` and `docs/REVIEW_QWEN.md`
