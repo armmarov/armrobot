@@ -26,9 +26,12 @@
 - **Screenshots:** `/home/armmarov/work/robot/isaac/workspace/armrobot/screenshots/` — gait frames captured via ffmpeg from the Isaac Sim viewport.
   - `latest.png` — always the most recent frame (updated every capture)
   - `run<N>_<YYYYMMDD_HHMMSS>.png` — timestamped frames per run (e.g. `run46_20260323_094534.png`)
-  - First monitor only: `2560x1080` at offset `0,0` (HDMI-0, primary)
-  - To take a single screenshot: `DISPLAY=:1 ffmpeg -y -f x11grab -video_size 2560x1080 -i :1+0,0 -vframes 1 screenshots/run<N>_$(date +%Y%m%d_%H%M%S).png -loglevel quiet`
-  - To capture continuously: `bash screenshots/capture.sh <run_number> [interval_seconds]` — default 1s interval, first monitor only
+  - Targets **Isaac Sim window directly** using `xwininfo -name "Isaac Sim 5.1.0"` for geometry; falls back to first monitor (`2560x1080` at `0,0`) if window not found
+  - To take a single screenshot (Isaac Sim window):
+    ```bash
+    GEOM=$(DISPLAY=:1 xwininfo -name "Isaac Sim" 2>/dev/null | awk '/Absolute upper-left X:/{x=$NF} /Absolute upper-left Y:/{y=$NF} /Width:/{w=$NF} /Height:/{h=$NF} END{print w"x"h"+"x"+"y}') && W=$(echo $GEOM|cut-dx-f1) H=$(echo $GEOM|cut-dx-f2|cut-d+-f1) X=$(echo $GEOM|cut-d+-f2) Y=$(echo $GEOM|cut-d+-f3) && DISPLAY=:1 ffmpeg -y -f x11grab -video_size ${W}x${H} -i :1+${X},${Y} -vframes 1 screenshots/run<N>_$(date +%Y%m%d_%H%M%S).png -loglevel quiet
+    ```
+  - To capture continuously: `bash screenshots/capture.sh <run_number> [interval_seconds]` — default 1s interval, targets Isaac Sim window
   - **Always check latest screenshots when assessing gait quality before proposing or implementing changes.**
 - **Makefile:** `Makefile` (train, train-headless, play-latest, review-init, review-plan, review-env targets)
 
