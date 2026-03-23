@@ -2112,4 +2112,88 @@ friction method) that affects training even when weights are 0.
 - Fewer falls from pushes than Run 40
 - Force balance L/R closer to 0.5 than Run 40's 0.66
 
-**Results:** (pending)
+**Results: KILLED at iter 1085 — instability event (reward -43% in 11 iters)**
+
+| Iter | Reward | Ep Length | Noise | Value Loss | vel_x | Force L/R |
+|------|--------|-----------|-------|------------|-------|-----------|
+| 9 | 190 | 56 | 0.99 | — | 0.47 | 187/190 |
+| 34 | 237 | 68 | 0.99 | — | 0.16 | 195/198 |
+| 133 | 1002 | 255 | 0.93 | 4474 | 0.011 | 214/235 |
+| 1074 | 3987 | 845 | 0.39 | **34122** | 0.196 | 174/254 |
+| 1085 | 2259 | 494 | 0.38 | 18 | 0.115 | 170/258 |
+
+**Root cause — PPO value loss spike/collapse at iter 1074-1085:**
+- value_loss 4474 → 34122 (critic overfit, inflated return estimates)
+- Policy chased inflated critic estimates → critic corrected to 18 → policy left in bad state
+- Reward -43% and episode length -42% in 11 iterations (~51s of training)
+- vel_x recovered to 0.20 then collapsed to 0.115 — "high-step in place" exploit
+- 3-frame history insufficient temporal context for proper push recovery
+
+**Decision: upgrade to 15 frames (proper EngineAI depth) as Run 46**
+
+---
+
+## Run 46 — Compact History (15 frames, EngineAI-equivalent)
+
+**Date:** 2026-03-23
+
+**Base config:** Run 45 (compact history design)
+
+**Changes from Run 45:**
+1. **History frames: 3 → 15 (matches EngineAI `frame_stack=15`)**
+   - `obs_history_len`: 3 → 15
+   - Total obs: 64 + 18×15 = **334 dims** (vs 118 in Run 45)
+   - Buffer shape: `[4096, 15, 18]`
+   - 15 frames × 20ms = **300ms context** (vs 60ms in Run 45)
+
+**Why 15 frames is safe (unlike Run 44's 960-dim):**
+- Compact 18-dim frames: 334 total < 512 first hidden layer — **no bottleneck**
+- Run 44 failed because 64×15=960 > 512 (compression bottleneck, not normalizer)
+- EngineAI uses 47-dim × 15 = 705 total (their single obs is already compact)
+- RSL-RL EmpiricalNormalization eps=1e-2 handles partial zeros identically to EngineAI
+
+**All reward weights, push forces, gait reference unchanged from Run 40/43/45.**
+
+**Results: CONVERGED — killed at iter 7530**
+
+| Iter | Reward | Ep Length | Noise | Value Loss | vel_x | Force L/R |
+|------|--------|-----------|-------|------------|-------|-----------|
+| 1560 | 2631 | 542 | 0.27 | — | 0.27–0.42 | — |
+| 7530 | ~5000 | 999 | 0.07 | — | 0.49 | — |
+
+**Gait quality (screenshots):** persistent forward trunk lean, noticeable hip splay (wide lateral leg spread). Policy converged but posture not clean.
+
+**Decision:** Kill and fix orientation formula + hip splay penalty → Run 47
+
+---
+
+## Run 47 — Orientation Dual-Signal + Hip Splay Fix
+
+**Date:** 2026-03-23
+
+**Base config:** Run 46 (15-frame compact history)
+
+**Changes from Run 46:**
+
+1. **Orientation formula — dual-signal matching EngineAI exactly**
+   - Before: `exp(-norm(grav_xy)^2 * 10)` — single weak signal
+   - After: `(exp(-(|roll|+|pitch|)*10) + exp(-norm(grav_xy)*20)) / 2` — dual signal at scale 20
+   - `euler_xyz_from_quat` returns tuple → unpacked as `roll, pitch, _ = euler_xyz_from_quat(base_quat)` (bug caught by Codex review)
+
+2. **Hip splay penalty — fixed joint indices**
+   - Before: indices `[0,1,6,7]` = hip_pitch_l, hip_roll_l, hip_pitch_r, hip_roll_r (wrong — included hip_pitch which needs freedom)
+   - After: indices `[1,2,7,8]` = hip_roll_l, hip_yaw_l, hip_roll_r, hip_yaw_r + 0.1 rad deadband
+   - Pairwise L/R norms with clamp: `clamp(norm_L + norm_R - 0.1, 0, 0.5)`
+
+**Review:** Codex + Qwen both reviewed. Codex caught tuple bug. Both confirmed correctness. GO signed off by user.
+
+**Goals:**
+- Hip splay narrows (visible in screenshots)
+- Forward trunk lean reduced
+- Episode length stays near 999
+- No value_loss spikes above 50 in first 500 iters
+
+**Results:** (in progress — started 2026-03-23)
+
+| Iter | Reward | Ep Length | Noise | Value Loss | vel_x | Force L/R |
+|------|--------|-----------|-------|------------|-------|-----------|

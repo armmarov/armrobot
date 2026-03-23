@@ -73,6 +73,21 @@ play-latest:  ## Play the latest checkpoint from logs
 		--num_envs 32 \
 		--checkpoint $$(find $(LOG_DIR) -name "model_*.pt" | sort | tail -1)
 
+# ─── Review ──────────────────────────────────────────────────
+.PHONY: review-init review review-plan review-env
+
+review-init:  ## Brief Codex + Qwen on all files including EngineAI reference (run once per day)
+	@bash scripts/review_init.sh
+
+review:  ## Run Codex + Qwen review — resumes sessions if available (PROMPT="..." optional)
+	@bash scripts/run_review.sh "$(PROMPT)"
+
+review-plan:  ## Review TRAINING_PLAN.md vs live env code
+	@bash scripts/run_review.sh "Review the updated docs/TRAINING_PLAN.md. Focus on: (1) is the reframing of Run 47 Change 1 correct? (2) is the Run 48 thin PPO subclass approach sound? (3) is the Run 49 staged breakdown the right order? (4) are there remaining gaps vs EngineAI reference?"
+
+review-env:  ## Review reward functions vs EngineAI reference
+	@bash scripts/run_review.sh "Review the reward functions in armrobotlegging_env.py. Compare against the EngineAI zqsa01.py reference you read during briefing. List every formula difference, missing term, or incorrect scale factor."
+
 # ─── Utilities ───────────────────────────────────────────────
 .PHONY: list-envs logs clean-logs help
 

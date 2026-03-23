@@ -38,18 +38,19 @@ if kl < desired_kl / 2: lr *= 1.5
 | Actor dims | **[256, 256]** | **[512, 256, 128]** | [512, 256, 128] |
 | Critic dims | [768, 256, 128] | [768, 256, 128] | [768, 256, 128] |
 | Activation | ELU | ELU | ELU |
-| Actor input | 252 (42×15 history) | 705 (47×15 history) | 64 (no history) |
-| Critic input | ~345 (115×3 history) | 219 (73×3 history) | 64 (same as actor) |
-| Normalizer | Baked into network `forward()` | Not used | Applied externally |
+| Actor input | 252 (42×15 history) | 705 (47×15 history) | **334** (64+18×15 compact history, Run 46+) |
+| Critic input | ~345 (115×3 history) | 219 (73×3 history) | 334 (same as actor) |
+| Normalizer | Baked into network `forward()` | Not used | Applied externally (RSL-RL EmpiricalNorm) |
 | Init | Optional orthogonal (gain=sqrt(2) hidden, 0.01 output) | Default | PyTorch defaults |
 | Min std clamp | Yes (per-joint, based on joint limits) | No | No |
 | init_noise_std | 1.0 | 1.0 | 1.0 |
-| Symmetry loss | No | **Yes** (coef=1.0) | No |
+| Symmetry loss | No | **Yes** (coef=1.0) | No (planned Run 48) |
 
 **Key differences:**
-- rl_workspace_ori actor is smaller [256,256], legged_gym uses [512,256,128]. Both much larger effective input (252/705 vs our 64) due to history.
-- EngineAI can clamp minimum std per-joint based on joint range, preventing exploration from collapsing too early.
-- legged_gym has symmetry loss enforcing left-right mirror consistency.
+- rl_workspace_ori actor is smaller [256,256], legged_gym uses [512,256,128]. Both use large inputs (252/705) due to history stacking.
+- Run 46 added 15-frame compact history: 334 dims (64 current + 18×15). EngineAI uses 47-dim per frame (705 total) — same design philosophy, our compact 18-dim frames keep 334 < 512 first hidden layer (no bottleneck).
+- **History note:** Run 44 failed with 64×15=960-dim (NOT a normalizer issue — 960 > 512 first hidden layer caused compression bottleneck). Run 46 fixed by using compact 18-dim frames.
+- legged_gym has symmetry loss enforcing left-right mirror consistency — planned for Run 48.
 
 ---
 
@@ -101,28 +102,35 @@ Total critic input: 219 (73 × 3)
 
 The critic gets **privileged information**: push forces, friction, mass, ground-truth (unlagged) obs.
 
-### Our IsaacLab (single frame, shared obs)
+### Our IsaacLab (Run 46+, compact history)
 
 ```
-Actor AND Critic get the same 64-dim observation:
-lin_vel_b(3) + ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) +
-joint_vel(12) + prev_actions(12) + commands(3) + sin_phase(1) + cos_phase(1) +
-ref_diff(12) + contact_mask(2) = 64
+Current frame (64-dim):
+  lin_vel_b(3) + ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) +
+  joint_vel(12) + prev_actions(12) + commands(3) + sin_phase(1) + cos_phase(1) +
+  ref_diff(12) + contact_mask(2) = 64
+
+Compact history (270-dim): 15 frames × 18 dims each
+  Per frame: ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) = 18
+  Buffer: [4096, 15, 18], zero-filled on episode reset
+
+Total: 64 + 270 = 334 dims
 ```
 
 ### Comparison
 
-| Aspect | rl_workspace_ori | legged_gym | Our IsaacLab |
-|--------|-----------------|------------|-------------|
-| Actor obs history | **15 timesteps** | **15 timesteps** | **1 (none)** |
-| Critic obs history | **3 timesteps** | **3 timesteps** | **1 (none)** |
-| Actor total input dim | **~635** | **705** | **64** |
-| Actor sees lin_vel? | **No** (inferred) | **No** (inferred) | **Yes** (direct) |
-| Actor sees projected_gravity? | **No** | **No** | **Yes** |
+| Aspect | rl_workspace_ori | legged_gym | Our IsaacLab (Run 46+) |
+|--------|-----------------|------------|------------------------|
+| Actor obs history | **15 timesteps** | **15 timesteps** | **15 timesteps** ✓ |
+| Critic obs history | **3 timesteps** | **3 timesteps** | 0 (planned Run 49) |
+| Actor total input dim | **~635** | **705** | **334** |
+| Actor per-frame dims | 42 (full obs) | 47 (full obs) | **18 (compact)** |
+| Actor sees lin_vel? | **No** (inferred) | **No** (inferred) | **Yes** (current frame) |
+| Actor sees projected_gravity? | **No** | **No** | **Yes** (current + history) |
 | Actor sees base_euler_xyz? | **Yes** | **Yes** | **No** (uses proj gravity) |
-| Critic privileged info? | **Yes** | **Yes** | **No** (same as actor) |
-| Obs noise | **Yes** (level=1.5) | **Yes** (level=1.5) | **No** |
-| Obs lag simulation | **Yes** (motor/IMU) | **Yes** (motor/IMU) | **No** |
+| Critic privileged info? | **Yes** | **Yes** | **No** (planned Run 49) |
+| Obs noise | **Yes** (level=1.5) | **Yes** (level=1.5) | **No** (planned Run 49) |
+| Obs lag simulation | **Yes** (motor/IMU) | **Yes** (motor/IMU) | **No** (planned Run 49) |
 | Manual obs_scales | **Yes** | **Yes** | **No** |
 
 ### EngineAI Observation Noise Scales
@@ -364,9 +372,9 @@ return (lin_vel_error_exp + ang_vel_error_exp) / 2.0 - linear_error
 | feet_contact_number | 1.4 | 1.4 | 1.4 | Yes |
 | feet_clearance | 1.6 | 1.6 | -1.6 | **Formula differs** |
 | feet_distance | 0.2 | 0.2 | 0.2 | Yes |
-| knee_distance | 0.2 | 0.2 | — | **Missing** |
+| knee_distance | 0.2 | 0.2 | 0.2 | Yes (added Run 39) |
 | foot_slip | -0.1 | -0.1 | -0.1 | Yes |
-| base_acc | 0.2 | 0.2 | — | **Missing** |
+| base_acc | 0.2 | 0.2 | 0.2 | Yes (added Run 39) |
 | vel_mismatch_exp | 0.5 | 0.5 | 0.5 | Yes |
 | track_vel_hard | 0.5 | 0.5 | 0.5 | Yes |
 | default_joint_pos | 0.8 | 0.8 | 0.8 | **Formula differs** |
@@ -586,11 +594,11 @@ PD gains match exactly.
 - [x] **7. Learning rate** — changed to 1e-5 in Run 4
 - [x] **8. Feet air time: zero-command gating** — added
 - [x] **9. Contact pattern: mismatch penalty** — changed to EngineAI's [-0.3, +1.0] in Run 8
-- [ ] **10. ref_joint_pos formula** — EngineAI uses `exp(-2*norm(diff)) - 0.2*clamp(norm,0,0.5)`, we use `exp(-2*mean(diff²))` (missing linear penalty)
+- [x] **10. ref_joint_pos formula** — Live code already uses `exp(-2*norm(diff)) - 0.2*clamp(norm,0,0.5)` (EngineAI-style). Verified by Codex review. Hip splay fix reframed: target `default_joint_pos` with per-joint weighting for indices 1,2 (hip_roll_l, hip_yaw_l) and 7,8 (hip_roll_r, hip_yaw_r). **Planned Run 47 Change 1 (reframed).**
 - [x] **11. default_joint_pos formula** — updated to EngineAI's `exp(-abs_sum * 100)` in Run 8
-- [ ] **12. orientation formula** — EngineAI combines euler angles + projected gravity; we use projected gravity only
+- [ ] **12. orientation formula** — EngineAI combines euler angles + projected gravity; we use projected gravity only. **Planned Run 47.** `(exp(-|euler_xy|*10) + exp(-norm(grav_xy)*20)) / 2` gives stronger upright signal, reduces forward lean.
 - [ ] **13. feet_clearance formula** — EngineAI scales target by swing_curve (sinusoidal); we use flat target
-- [ ] **14. Command curriculum** — start narrow, expand when tracking > 80%
+- [ ] **14. Command curriculum** — start narrow, expand when tracking > 80%. **Planned Run 50.**
 - [ ] **15. Small command filter** — zero out commands with norm < 0.2-0.3
 - [ ] **16. Missing reward terms:**
   - [x] `feet_clearance` (scale 1.6) — swing foot height
@@ -647,8 +655,8 @@ PD gains match exactly.
 
 ### Future (sim-to-real transfer)
 
-- [ ] **18. Add observation history** (15 steps for actor, 3 for critic)
-- [ ] **19. Add asymmetric actor-critic** (privileged critic with forces, friction, mass)
+- [x] **18. Add observation history** — **DONE Run 46**: 15-frame compact history, 334-dim obs. Actor history matches EngineAI. Critic history (3 frames, privileged) planned Run 49.
+- [ ] **19. Add asymmetric actor-critic** (privileged critic with forces, friction, mass). **Planned Run 49.**
 - [ ] **20. Add domain randomization (full):**
   - [ ] Friction randomization [0.2, 1.3]
   - [ ] Base mass offset [-4, +4] kg
@@ -665,5 +673,5 @@ PD gains match exactly.
   - [ ] IMU lag (1-10 steps)
 - [x] **22. Add push disturbances** (every 8s, ±0.4 m/s lin, ±0.6 rad/s ang) — added Run 11
 - [ ] **23. Increase sim frequency** — 200Hz to 1000Hz (dt=0.001, decimation=10)
-- [ ] **24. Symmetry loss** (legged_gym: sym_coef=1.0, left-right mirror enforcement)
+- [ ] **24. Symmetry loss** (legged_gym: sym_coef=1.0, left-right mirror enforcement). **Planned Run 48.** Requires copying RSL-RL PPO into project and adding obs/act permutation matrices. Permutation defined for our 334-dim obs in `docs/TRAINING_PLAN.md`.
 - [ ] **25. Terrain curriculum** — 20 levels, 7 terrain types

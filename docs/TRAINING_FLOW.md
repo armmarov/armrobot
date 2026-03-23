@@ -75,7 +75,7 @@ flowchart LR
 flowchart LR
     subgraph APPLY["_apply_action() — called 4× per policy step"]
         ACTION["action [4096, 12]<br/>in [-1, 1]"]
-        SCALE["× action_scale<br/>(0.5 rad)"]
+        SCALE["× action_scale<br/>(0.6 rad)"]
         DEFAULT["+ default_joint_pos<br/>(bent knee standing)"]
         TARGET["Joint position target"]
         PD["ImplicitActuator PD Controller<br/>τ = Kp(target - pos) - Kd × vel"]
@@ -84,7 +84,7 @@ flowchart LR
     end
 
     subgraph FILES2["Files & Parameters"]
-        F2a["<b>armrobotlegging_env_cfg.py</b><br/>action_scale = 0.5<br/>decimation = 4<br/>sim.dt = 1/200"]
+        F2a["<b>armrobotlegging_env_cfg.py</b><br/>action_scale = 0.6<br/>decimation = 4<br/>sim.dt = 1/200"]
         F2b["<b>pm01.py</b><br/>hip_pitch: Kp=70, Kd=7<br/>hip_roll/yaw: Kp=50, Kd=5<br/>knee: Kp=70, Kd=7<br/>ankle: Kp=20, Kd=0.2"]
     end
 ```
@@ -103,7 +103,7 @@ flowchart TB
     end
 
     subgraph FILES3["Files & Parameters"]
-        F3["<b>armrobotlegging_env_cfg.py</b><br/>cycle_time = 0.8s<br/>target_joint_pos_scale = 0.26<br/>termination_height = 0.65<br/>contact_height_threshold = 0.16<br/>cmd_resample_time_s = 8.0<br/>cmd_still_ratio = 0.1"]
+        F3["<b>armrobotlegging_env_cfg.py</b><br/>cycle_time = 0.8s<br/>target_joint_pos_scale = 0.26<br/>termination_height = 0.45<br/>contact_height_threshold = 0.16<br/>cmd_resample_time_s = 8.0<br/>cmd_still_ratio = 0.1"]
     end
 ```
 
@@ -323,7 +323,7 @@ sequenceDiagram
 | Param | Value | Purpose |
 |-------|-------|---------|
 | `action_space` | 12 | Number of leg joints the policy controls (6 per leg) |
-| `action_scale` | 0.5 rad | Maps policy output [-1,1] to joint position offset. Larger = bigger movements per action |
+| `action_scale` | 0.6 rad | Maps policy output [-1,1] to joint position offset. Run 38: 0.5→0.6 for more expressive gait |
 | hip_pitch Kp/Kd | 70 / 7 | Stiffness/damping for hip forward-backward swing. High = stiff tracking |
 | hip_roll Kp/Kd | 50 / 5 | Stiffness/damping for hip lateral tilt |
 | hip_yaw Kp/Kd | 50 / 5 | Stiffness/damping for hip rotation |
@@ -336,7 +336,7 @@ sequenceDiagram
 |-------|-------|---------|
 | `cycle_time` | 0.8s | Full gait cycle duration (left swing + right swing). Matches EngineAI |
 | `target_joint_pos_scale` | 0.17 rad | Amplitude of sinusoidal gait reference for hip/ankle. Knee gets 2x (0.34 rad). Run 19: reduced from 0.26 |
-| `target_feet_height` | 0.10m | Target swing foot height. Run 27: actual EngineAI value (0.20 was wrong) |
+| `target_feet_height` | 0.12m | Target swing foot height. Run 38: raised from 0.10 for higher foot lifts |
 | `max_feet_height` | 0.15m | Max allowed swing foot height. Run 27: match target + margin |
 
 ### 4. Velocity Commands (`armrobotlegging_env_cfg.py`)
@@ -360,7 +360,7 @@ sequenceDiagram
 
 | Param | Value | Purpose |
 |-------|-------|---------|
-| `termination_height` | 0.65m | Reset if robot base drops below this — tighter margin for stability (Run 35) |
+| `termination_height` | 0.45m | Reset if robot base drops below this — reverted from 0.65 (Run 37: too strict caused standing still) |
 | `base_height_target` | 0.8132m | Nominal standing height — used by base_height reward |
 | `termination_contact_body_names` | link_base | Reset if these bodies touch the ground (torso fell) |
 
@@ -410,8 +410,8 @@ sequenceDiagram
 |-------|-------|---------|---------|
 | `rew_action_smoothness` | -0.002 | `w * (jerk + 2nd_order + mag)` | Run 34: EngineAI -0.003 / 1.5 |
 | `rew_energy` | -0.000067 | `w * sum(action² * \|vel\|)` | Run 34: EngineAI -0.0001 / 1.5 |
-| `rew_feet_clearance` | -1.07 | `w * norm(target_h - feet_heights)` | Run 34: EngineAI -1.6 / 1.5 |
-| `rew_feet_height_max` | -0.4 | `w * sum(clamp(h - 0.15, 0))` | Run 34: EngineAI -0.6 / 1.5 |
+| `rew_feet_clearance` | -1.6 | `w * norm(target_h - feet_heights)` | Run 38: FULL EngineAI (was -1.07) |
+| `rew_feet_height_max` | -0.6 | `w * sum(clamp(h - 0.18, 0))` | Run 38: FULL EngineAI (was -0.4) |
 | `rew_foot_slip` | -0.067 | `w * sum(sqrt(speed) * contact)` | Run 34: EngineAI -0.1 / 1.5 |
 | `rew_termination` | -0.0 | `w * fell` | Disabled (EngineAI uses -0.0) |
 | `rew_swing_phase_ground` | 0.0 | `w * sum(swing_mask * contact)` | Disabled (not in EngineAI) |

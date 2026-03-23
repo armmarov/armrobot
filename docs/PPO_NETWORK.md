@@ -5,7 +5,7 @@
 ```mermaid
 flowchart TB
     subgraph ENV["Environment (4096 parallel)"]
-        OBS["Observation<br/>[4096, 64]"]
+        OBS["Observation<br/>[4096, 334]<br/>(64 current + 270 compact history)"]
         REW["Reward<br/>[4096]"]
         DONE["Done<br/>[4096]"]
     end
@@ -13,8 +13,8 @@ flowchart TB
     subgraph AGENT["PPO Agent"]
         subgraph ACTOR["Actor (Policy) Network"]
             direction TB
-            A_NORM["Running Mean/Std Normalizer<br/>[4096, 64] → [4096, 64]"]
-            A_L1["Linear(64, 512) + ELU<br/>→ [4096, 512]"]
+            A_NORM["Running Mean/Std Normalizer<br/>[4096, 334] → [4096, 334]"]
+            A_L1["Linear(334, 512) + ELU<br/>→ [4096, 512]"]
             A_L2["Linear(512, 256) + ELU<br/>→ [4096, 256]"]
             A_L3["Linear(256, 128) + ELU<br/>→ [4096, 128]"]
             A_OUT["Linear(128, 12)<br/>→ μ [4096, 12]"]
@@ -24,8 +24,8 @@ flowchart TB
 
         subgraph CRITIC["Critic (Value) Network"]
             direction TB
-            C_NORM["Running Mean/Std Normalizer<br/>[4096, 64] → [4096, 64]"]
-            C_L1["Linear(64, 768) + ELU<br/>→ [4096, 768]"]
+            C_NORM["Running Mean/Std Normalizer<br/>[4096, 334] → [4096, 334]"]
+            C_L1["Linear(334, 768) + ELU<br/>→ [4096, 768]"]
             C_L2["Linear(768, 256) + ELU<br/>→ [4096, 256]"]
             C_L3["Linear(256, 128) + ELU<br/>→ [4096, 128]"]
             C_OUT["Linear(128, 1)<br/>→ V [4096, 1]"]
@@ -49,7 +49,7 @@ flowchart TB
     ENV --> DONE
 
     subgraph BUFFER["Rollout Buffer (48 steps)"]
-        BUF_OBS["observations [48, 4096, 64]"]
+        BUF_OBS["observations [48, 4096, 334]"]
         BUF_ACT["actions [48, 4096, 12]"]
         BUF_REW["rewards [48, 4096]"]
         BUF_VAL["values [48, 4096]"]
@@ -70,7 +70,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     subgraph INPUT["Input"]
-        I["Observation [4096, 64]<br/>────────────────<br/>lin_vel_b [3]<br/>ang_vel_b [3]<br/>proj_gravity [3]<br/>joint_pos_rel [12]<br/>joint_vel [12]<br/>prev_actions [12]<br/>commands [3]<br/>sin/cos_phase [2]<br/>ref_joint_diff [12]<br/>contact_mask [2]"]
+        I["Observation [4096, 334]<br/>────────────────<br/>lin_vel_b [3]<br/>ang_vel_b [3]<br/>proj_gravity [3]<br/>joint_pos_rel [12]<br/>joint_vel [12]<br/>prev_actions [12]<br/>commands [3]<br/>sin/cos_phase [2]<br/>ref_joint_diff [12]<br/>contact_mask [2]<br/>── compact history (15×18) ──<br/>frame_0..14: ang_vel+grav+jpos [18]"]
     end
 
     subgraph NORMALIZE["Normalize"]
@@ -78,7 +78,7 @@ flowchart LR
     end
 
     subgraph HIDDEN["Hidden Layers"]
-        H1["Dense 512<br/>────────<br/>W: [64 × 512]<br/>b: [512]<br/>→ ELU<br/>out: [4096, 512]"]
+        H1["Dense 512<br/>────────<br/>W: [334 × 512]<br/>b: [512]<br/>→ ELU<br/>out: [4096, 512]"]
         H2["Dense 256<br/>────────<br/>W: [512 × 256]<br/>b: [256]<br/>→ ELU<br/>out: [4096, 256]"]
         H3["Dense 128<br/>────────<br/>W: [256 × 128]<br/>b: [128]<br/>→ ELU<br/>out: [4096, 128]"]
     end
@@ -99,7 +99,7 @@ flowchart LR
 ```mermaid
 flowchart LR
     subgraph INPUT2["Input"]
-        I2["Observation [4096, 64]<br/>(same as actor)"]
+        I2["Observation [4096, 334]<br/>(same as actor)"]
     end
 
     subgraph NORMALIZE2["Normalize"]
@@ -221,7 +221,7 @@ flowchart TB
     subgraph FORWARD["Forward Pass (compute losses)"]
         direction TB
         F_NOTE["Mini-batch size = 49,152<br/>= 196,608 total transitions / 4 mini-batches<br/>= (48 steps × 4096 envs) / 4"]
-        F_OBS["Observations [49152, 64]<br/>(from mini-batch)"]
+        F_OBS["Observations [49152, 334]<br/>(from mini-batch)"]
         F_ACT["Stored actions [49152, 12]<br/>(from rollout buffer)"]
         F_ADV["Advantages [49152]<br/>(from GAE, not learned)"]
         F_RET["Returns [49152]<br/>(from GAE, not learned)"]
@@ -258,7 +258,7 @@ flowchart TB
         subgraph ACTOR_GRAD["Policy Loss + Entropy Loss<br/>→ Actor Gradients"]
             direction TB
             AG_NOTE["Policy Loss flows through new_log_prob<br/>→ back through actor layers<br/>Entropy Loss flows through σ<br/>→ back to log_std"]
-            AG1["∂Loss/∂(Actor W1, b1) [64×512 + 512]"]
+            AG1["∂Loss/∂(Actor W1, b1) [334×512 + 512]"]
             AG2["∂Loss/∂(Actor W2, b2) [512×256 + 256]"]
             AG3["∂Loss/∂(Actor W3, b3) [256×128 + 128]"]
             AG4["∂Loss/∂(Actor W4, b4) [128×12 + 12]"]
@@ -268,7 +268,7 @@ flowchart TB
         subgraph CRITIC_GRAD["Value Loss<br/>→ Critic Gradients"]
             direction TB
             CG_NOTE["Value Loss flows through V(s)<br/>→ back through critic layers"]
-            CG1["∂Loss/∂(Critic W1, b1) [64×768 + 768]"]
+            CG1["∂Loss/∂(Critic W1, b1) [334×768 + 768]"]
             CG2["∂Loss/∂(Critic W2, b2) [768×256 + 256]"]
             CG3["∂Loss/∂(Critic W3, b3) [256×128 + 128]"]
             CG4["∂Loss/∂(Critic W4, b4) [128×1 + 1]"]
@@ -287,9 +287,9 @@ flowchart TB
         U1["For each parameter θ:<br/>θ_new = θ - lr × adjusted_gradient<br/>────────────────<br/>Adam adjusts gradient using:<br/>• momentum (past gradient direction)<br/>• RMSprop (past gradient magnitude)<br/>lr = 1e-5 (adaptive)"]
         subgraph UPDATED["Updated Parameters (~478,873 total)"]
             direction LR
-            UP1["Actor weights & biases<br/>(199,064 params)"]
+            UP1["Actor weights & biases<br/>(199,832 params)"]
             UP2["Actor log_std [12]<br/>(exploration noise)"]
-            UP3["Critic weights & biases<br/>(279,809 params)"]
+            UP3["Critic weights & biases<br/>(280,577 params)"]
         end
         U1 --> UPDATED
     end
@@ -325,23 +325,23 @@ flowchart TB
     subgraph PARAMS["Total Trainable Parameters"]
         direction TB
         subgraph ACTOR_P["Actor"]
-            AP1["Linear(64, 512):  64×512 + 512  = 33,280"]
+            AP1["Linear(334, 512):  334×512 + 512  = 60,928"]
             AP2["Linear(512, 256): 512×256 + 256 = 131,328"]
             AP3["Linear(256, 128): 256×128 + 128 = 32,896"]
             AP4["Linear(128, 12):  128×12 + 12   = 1,548"]
             AP5["log_std [12]:                      12"]
-            AP_TOTAL["Actor Total: 199,064"]
+            AP_TOTAL["Actor Total: 226,712"]
         end
 
         subgraph CRITIC_P["Critic"]
-            CP1["Linear(64, 768):  64×768 + 768  = 49,920"]
+            CP1["Linear(334, 768):  334×768 + 768  = 91,392"]
             CP2["Linear(768, 256): 768×256 + 256 = 196,864"]
             CP3["Linear(256, 128): 256×128 + 128 = 32,896"]
             CP4["Linear(128, 1):   128×1 + 1     = 129"]
-            CP_TOTAL["Critic Total: 279,809"]
+            CP_TOTAL["Critic Total: 321,281"]
         end
 
-        GRAND["Grand Total: ~478,873 parameters"]
+        GRAND["Grand Total: ~584,409 parameters (Run 46+, 334-dim obs)"]
     end
 ```
 
@@ -381,7 +381,24 @@ flowchart LR
     EARLY --> MID --> LATE
 ```
 
-## Observation Vector Detail [64]
+## Observation Vector Detail [334] (Run 46+)
+
+### Observation History Design
+| Config | Value | Notes |
+|--------|-------|-------|
+| `obs_history_len` | **15 frames** | Matches EngineAI `frame_stack=15` |
+| `obs_history_size` | 18 dims/frame | ang_vel_b(3) + proj_gravity(3) + joint_pos_rel(12) |
+| Total history dims | **270** | 15 × 18 |
+| Total obs dims | **334** | 64 current + 270 history |
+| Temporal context | **300ms** | 15 frames × 20ms policy step |
+| Why compact (18 not 64) | 334 < 512 first hidden layer — no bottleneck. Run 44 used 64×15=960 > 512 → compression bottleneck → policy failed |
+| Why these 18 dims | Disturbance-relevant: ang_vel detects push, gravity tracks tilt, joint_pos tracks stance |
+
+> **EngineAI uses 47-dim × 15 = 705 total.** Their single obs is compact by design (no gait phase / ref_joint_diff in stacked portion).
+> We use 18-dim × 15 = 270 history — same principle, smaller per-frame footprint.
+> RSL-RL EmpiricalNormalization (eps=1e-2) identical to EngineAI's normalizer — no special handling needed.
+
+### Current Obs Vector
 
 | Index | Dims | Name | Description | Source |
 |-------|------|------|-------------|--------|
@@ -397,9 +414,14 @@ flowchart LR
 | 50–61 | 12 | `ref_joint_diff` | Reference gait position minus current joint position [rad] | Gait generator |
 | 62–63 | 2 | `contact_mask` | Left/right foot on ground [0 or 1] | Foot height check |
 | | **64** | | | |
+| 64–333 | 270 | `history_frames_0–14` | 15 frames × 18: ang_vel_b(3)+proj_gravity(3)+joint_pos_rel(12) | Compact history |
+| | **334** | | **Total (Run 46+)** | |
 
 > Defined in `armrobotlegging_env.py` → `_get_observations()`
-> Dimensions configured in `armrobotlegging_env_cfg.py` → `observation_space = 64`
+> Dimensions configured in `armrobotlegging_env_cfg.py` → `observation_space = 334`
+>
+> **History design:** 15 frames × 18 dims = 270 extra dims appended after the 64-dim current obs.
+> Only disturbance-relevant signals are stacked. Full stacking (Run 44: 64×15=960) failed because input > first hidden layer.
 
 ## Action Vector Detail [12]
 
@@ -430,13 +452,14 @@ target = default_joint_pos + 0.5 × action
 
 | Component | Shape | Parameters | File |
 |-----------|-------|------------|------|
-| Actor input | [64] | - | `armrobotlegging_env_cfg.py` |
-| Actor hidden | [512, 256, 128] | 197,504 | `rsl_rl_ppo_cfg.py` |
+| Actor input | [334] | - | `armrobotlegging_env_cfg.py` |
+| Actor hidden | [512, 256, 128] | 226,712 | `rsl_rl_ppo_cfg.py` |
 | Actor output (μ) | [12] | 1,548 | `rsl_rl_ppo_cfg.py` |
 | Actor log_std | [12] | 12 | RSL-RL (init_noise_std=1.0) |
-| Critic hidden | [768, 256, 128] | 279,680 | `rsl_rl_ppo_cfg.py` |
+| Critic hidden | [768, 256, 128] | 321,281 | `rsl_rl_ppo_cfg.py` |
 | Critic output (V) | [1] | 129 | RSL-RL |
-| Obs normalizer | μ,σ [64] each | - (not trainable) | RSL-RL (empirical) |
-| **Total trainable** | | **~478,873** | |
+| Obs normalizer | μ,σ [334] each | - (not trainable) | RSL-RL (empirical) |
+| History buffer | [4096, 15, 18] | - | `armrobotlegging_env.py` |
+| **Total trainable** | | **~549,682** | |
 | Rollout buffer | 48 × 4096 | 196,608 transitions | `rsl_rl_ppo_cfg.py` |
 | Training iterations | 10000 | ~1.97B env steps | `rsl_rl_ppo_cfg.py` |

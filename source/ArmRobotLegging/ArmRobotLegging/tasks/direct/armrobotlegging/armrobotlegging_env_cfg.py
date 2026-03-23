@@ -22,15 +22,17 @@ class ArmrobotleggingEnvCfg(DirectRLEnvCfg):
     # single frame obs: base_lin_vel_b(3) + base_ang_vel_b(3) + projected_gravity_b(3) +
     #      joint_pos_rel(12) + joint_vel(12) + prev_actions(12) +
     #      commands(3) + gait_phase(2) + ref_joint_diff(12) + contact_mask(2) = 64
-    # Run 45: compact history — only disturbance-relevant signals stacked 3 frames
-    #   history signals: ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) = 18 dims
-    #   history size: 18 × 3 = 54 extra dims
-    #   total obs: 64 + 54 = 118 dims
-    # Run 44 failed: full 64×15=960 overwhelmed RSL-RL normalizer (mostly-zero history frames)
-    obs_history_len: int = 3            # Run 45: 3 frames (was 15 — too large for normalizer)
-    obs_history_size: int = 18          # Run 45: 18 key dims per frame (ang_vel+gravity+joint_pos)
+    # Run 46: compact history — 15 frames matching EngineAI frame_stack=15
+    #   history signals: ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) = 18 dims/frame
+    #   history size: 18 × 15 = 270 extra dims
+    #   total obs: 64 + 270 = 334 dims
+    # Run 44 failed: full 64×15=960 — input > first hidden layer (512) caused bottleneck
+    # Run 45 used 3 frames (118-dim) — safe but limited temporal context
+    # Run 46: compact 18-dim × 15 frames = 334 total — no bottleneck (334 < 512), matches EngineAI design
+    obs_history_len: int = 15           # Run 46: 15 frames (matches EngineAI frame_stack=15)
+    obs_history_size: int = 18          # unchanged: ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12)
     action_space = 12
-    observation_space = 64 + 18 * 3    # 118 = 64 current + 54 compact history
+    observation_space = 64 + 18 * 15   # 334 = 64 current + 270 compact history
     state_space = 0
 
     # ---------- simulation — 200 Hz physics, 50 Hz policy ----------

@@ -21,9 +21,16 @@
 
 - **Environment:** `source/ArmRobotLegging/ArmRobotLegging/tasks/direct/armrobotlegging/armrobotlegging_env.py`
 - **Config:** `source/ArmRobotLegging/ArmRobotLegging/tasks/direct/armrobotlegging/armrobotlegging_env_cfg.py`
-- **Docs:** `docs/TRAINING_HISTORY.md`, `docs/TRAINING_FLOW.md`, `docs/PPO_NETWORK.md`, `docs/ENGINEAI_VS_ISAACLAB.md`
+- **Docs:** `docs/TRAINING_HISTORY.md`, `docs/TRAINING_FLOW.md`, `docs/PPO_NETWORK.md`, `docs/ENGINEAI_VS_ISAACLAB.md`, `docs/TRAINING_PLAN.md`
 - **Training logs:** `/workspace/armrobot/logs/` (inside docker)
-- **Makefile:** `Makefile` (train, train-headless, play-latest targets)
+- **Screenshots:** `/home/armmarov/work/robot/isaac/workspace/armrobot/screenshots/` — gait frames captured via ffmpeg from the Isaac Sim viewport.
+  - `latest.png` — always the most recent frame (updated every capture)
+  - `run<N>_<YYYYMMDD_HHMMSS>.png` — timestamped frames per run (e.g. `run46_20260323_094534.png`)
+  - First monitor only: `2560x1080` at offset `0,0` (HDMI-0, primary)
+  - To take a single screenshot: `DISPLAY=:1 ffmpeg -y -f x11grab -video_size 2560x1080 -i :1+0,0 -vframes 1 screenshots/run<N>_$(date +%Y%m%d_%H%M%S).png -loglevel quiet`
+  - To capture continuously: `bash screenshots/capture.sh <run_number> [interval_seconds]` — default 1s interval, first monitor only
+  - **Always check latest screenshots when assessing gait quality before proposing or implementing changes.**
+- **Makefile:** `Makefile` (train, train-headless, play-latest, review-init, review-plan, review-env targets)
 
 ## Docker
 
@@ -38,16 +45,47 @@
 - Run visual evaluation via `make play-latest` after killing training
 - Record video evaluation and analyze frames if robot behavior is wrong
 
-## Observation History (Run 45+)
+## Observation History (Run 46+)
 
-- **Do NOT stack full obs × many frames** — RSL-RL empirical normalizer breaks with large zero-padded history
-- Use **compact history only**: `ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) = 18 dims`
-- Max **3 frames** of history → obs = 64 + 54 = 118 dims (safe for normalizer)
-- Run 44 failure: 960-dim history (64×15) → noise_std=0.99 for 898 iters → killed
+- Use **compact history only**: `ang_vel_b(3) + projected_gravity(3) + joint_pos_rel(12) = 18 dims/frame`
+- **15 frames** → obs = 64 + 270 = **334 dims** (matches EngineAI `frame_stack=15`)
+- RSL-RL `EmpiricalNormalization` (eps=1e-2) is identical to EngineAI's normalizer — handles zero-fill on reset fine
+- **Run 44 failure was a bottleneck issue, NOT a normalizer issue:** full 64×15=960 > 512 first hidden layer
+- Run 45 used 3 frames (118-dim) — worked but too short temporal context (60ms)
+- Run 46 uses 15 frames (334-dim) — correct design: 334 < 512, no bottleneck, 300ms context
+- **Do NOT stack full 64-dim obs** — keeps 334 < 512 safely. EngineAI uses 47-dim compact frames too.
+
+## Key Lessons (Runs 40–46)
+
+- **force_balance reward** at ANY weight causes stepping-in-place exploit — do NOT re-enable (Runs 41, 41b, 42, 42b)
+- **Symmetry loss** (EngineAI legged_gym) is the correct fix for L/R imbalance — needs RSL-RL PPO modification
+- **ref_joint_pos formula**: EngineAI uses `exp(-2*norm) - 0.2*clamp(norm,0,0.5)` — the `-0.2*clamp` linear term specifically penalizes hip yaw/roll splay; our formula is missing this
+- **Orientation formula**: EngineAI uses `(exp(-|euler_xy|*10) + exp(-norm(grav_xy)*20)) / 2` — combining two signals at scale 20 is stronger than our single signal at scale 10
+- **Run 45 value_loss spike (34k→18)**: PPO critic overfit pattern — caused reward -43% in 11 iters; watched for in all future runs
+- **feet_air_time 4–5** is normal/expected at mid-training — Run 40 peaked at 16.94; do NOT cap or penalize
+
+## Planned Improvements
+
+See `docs/TRAINING_PLAN.md` for full details and multi-model review questions.
+
+- **Run 47:** ref_joint_pos formula fix + orientation formula fix (gait naturalness)
+- **Run 48:** Symmetry loss (L/R mirror enforcement via RSL-RL PPO modification)
+- **Run 49:** Full domain randomization + observation noise (sim-to-real)
+- **Run 50:** Command curriculum
 
 ## Code Review & Git
 
 - After fixing/updating code, **do a code review** before running training
-- If code review passes, **commit and push to git** for tracking
+- **Run Codex + Qwen as peer reviewers** before every code change or plan update:
+  - `make review-plan` — review `TRAINING_PLAN.md` vs live env code
+  - `make review-env` — review reward functions vs EngineAI reference
+  - `make review PROMPT="..."` — ad-hoc review with custom question
+  - Both CLIs run in parallel; results saved to `docs/REVIEW_CODEX.md` and `docs/REVIEW_QWEN.md`
+- **After both reviews complete, you MUST:**
+  1. Read BOTH `docs/REVIEW_CODEX.md` and `docs/REVIEW_QWEN.md` fully
+  2. Write `docs/REVIEW_CLAUDE.md` — your own synthesis covering: agreements, conflicts, bugs found, changes required, and a clear GO / NO-GO recommendation
+  3. **Wait for user sign-off on `REVIEW_CLAUDE.md` before running any training or committing code changes**
+  4. Only after user approves: apply any fixes, commit, then run training
+- If code review passes and user signs off, **commit and push to git** for tracking
 - Commit message format: `Run N: <brief description of changes>`
 - Push to the current branch after each run's code changes are verified

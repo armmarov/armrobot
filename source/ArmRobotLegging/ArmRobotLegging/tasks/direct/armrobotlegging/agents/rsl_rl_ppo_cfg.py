@@ -14,6 +14,7 @@ class PM01WalkingPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         init_noise_std=1.0,
         actor_obs_normalization=True,   # Run 23: restore
         critic_obs_normalization=True,  # Run 23: restore
+        # Run 44: wider first layer to handle 960-dim history input (was 512 for 64-dim)
         actor_hidden_dims=[512, 256, 128],
         critic_hidden_dims=[768, 256, 128],
         activation="elu",
